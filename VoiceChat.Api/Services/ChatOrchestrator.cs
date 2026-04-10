@@ -22,12 +22,13 @@ public class ChatOrchestrator(
 
     public async IAsyncEnumerable<string> StreamAssistantReplyAsync(
         Guid conversationId,
+        Guid userId,
         string userContent,
         string inputMode,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var conversation = await db.Conversations.FirstOrDefaultAsync(
-            c => c.Id == conversationId && !c.IsDeleted,
+            c => c.Id == conversationId && c.UserId == userId,
             cancellationToken);
         if (conversation is null)
             throw new InvalidOperationException("Conversation not found.");

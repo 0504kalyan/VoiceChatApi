@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using VoiceChat.Api.Interfaces;
 using VoiceChat.Api.Services;
@@ -8,6 +9,7 @@ namespace VoiceChat.Api.Hubs;
 /// SendMessage returns immediately so <see cref="CancelGeneration"/> can run while the assistant streams.
 /// Streaming uses <see cref="IHubContext{THub}"/> and a fresh DI scope so the hub instance is not used after SendMessage returns.
 /// </summary>
+[Authorize]
 public class ChatHub(
     IServiceScopeFactory scopeFactory,
     ChatGenerationCancellationRegistry cancellationRegistry,
@@ -70,10 +72,13 @@ public class ChatHub(
     {
         try
         {
+            if (Context.User?.Identity?.IsAuthenticated != true)
+                throw new HubException("Unauthorized.");
+            var userId = Context.User.RequireUserId();
             await using var scope = scopeFactory.CreateAsyncScope();
             var orchestrator = scope.ServiceProvider.GetRequiredService<IChatOrchestrator>();
 
-            await foreach (var token in orchestrator.StreamAssistantReplyAsync(conversationId, content, inputMode, ct))
+            await foreach (var token in orchestrator.StreamAssistantReplyAsync(conversationId, userId, content, inputMode, ct))
             {
                 await hubContext.Clients.Group(group).SendAsync("ReceiveToken", conversationId, token, cancellationToken: ct);
             }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VoiceChat.Api.Options;
@@ -6,6 +7,7 @@ using VoiceChat.Api.Services;
 
 namespace VoiceChat.Api.Controllers;
 
+[AllowAnonymous]
 [ApiController]
 [Route("api/[controller]")]
 public class HealthController(IHttpClientFactory httpClientFactory, IOptions<OllamaOptions> ollamaOptions) : ControllerBase

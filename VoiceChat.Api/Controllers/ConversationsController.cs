@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -9,6 +10,7 @@ using VoiceChat.Api.Services;
 
 namespace VoiceChat.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class ConversationsController(
@@ -19,10 +21,10 @@ public class ConversationsController(
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ConversationListItemDto>>> List(CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
+        var userId = User.RequireUserId();
         var list = await db.Conversations
             .AsNoTracking()
-            .Where(c => c.UserId == userId && !c.IsDeleted)
+            .Where(c => c.UserId == userId)
             .OrderByDescending(c => c.UpdatedAt)
             .Select(c => new ConversationListItemDto(c.Id, c.Title, c.Model, c.UpdatedAt))
             .ToListAsync(cancellationToken);
@@ -34,7 +36,7 @@ public class ConversationsController(
         [FromBody] CreateConversationRequest? body,
         CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
+        var userId = User.RequireUserId();
         var now = DateTimeOffset.UtcNow;
         var conv = new Conversation
         {
@@ -46,7 +48,7 @@ public class ConversationsController(
                 : body.Model.Trim(),
             CreatedAt = now,
             UpdatedAt = now,
-            IsDeleted = false
+            IsActive = true
         };
         db.Conversations.Add(conv);
         await db.SaveChangesAsync(cancellationToken);
@@ -56,8 +58,8 @@ public class ConversationsController(
     [HttpGet("{id:guid}/messages")]
     public async Task<ActionResult<IReadOnlyList<MessageDto>>> Messages(Guid id, CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
-        var exists = await db.Conversations.AnyAsync(c => c.Id == id && c.UserId == userId && !c.IsDeleted,
+        var userId = User.RequireUserId();
+        var exists = await db.Conversations.AnyAsync(c => c.Id == id && c.UserId == userId,
             cancellationToken);
         if (!exists)
             return NotFound();
@@ -76,8 +78,8 @@ public class ConversationsController(
     public async Task<ActionResult<IReadOnlyList<ResponseArchiveDto>>> ResponseArchives(Guid id,
         CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
-        var exists = await db.Conversations.AnyAsync(c => c.Id == id && c.UserId == userId && !c.IsDeleted,
+        var userId = User.RequireUserId();
+        var exists = await db.Conversations.AnyAsync(c => c.Id == id && c.UserId == userId,
             cancellationToken);
         if (!exists)
             return NotFound();
@@ -95,13 +97,12 @@ public class ConversationsController(
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
-        var conv = await db.Conversations.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId && !c.IsDeleted,
+        var userId = User.RequireUserId();
+        var conv = await db.Conversations.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId,
             cancellationToken);
         if (conv is null)
             return NotFound();
-        conv.IsDeleted = true;
-        conv.DeletedAt = DateTimeOffset.UtcNow;
+        conv.IsActive = false;
         await db.SaveChangesAsync(cancellationToken);
         return NoContent();
     }
@@ -113,9 +114,9 @@ public class ConversationsController(
     [HttpPost("{id:guid}/cancel-generation")]
     public async Task<IActionResult> CancelGeneration(Guid id, CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
+        var userId = User.RequireUserId();
         var exists = await db.Conversations.AnyAsync(
-            c => c.Id == id && c.UserId == userId && !c.IsDeleted,
+            c => c.Id == id && c.UserId == userId,
             cancellationToken);
         if (!exists)
             return NotFound();
@@ -128,9 +129,9 @@ public class ConversationsController(
     public async Task<IActionResult> DeleteMessagesFrom(Guid conversationId, Guid messageId,
         CancellationToken cancellationToken)
     {
-        var userId = await DemoUser.GetIdAsync(db, cancellationToken);
+        var userId = User.RequireUserId();
         var conv = await db.Conversations.FirstOrDefaultAsync(
-            c => c.Id == conversationId && c.UserId == userId && !c.IsDeleted,
+            c => c.Id == conversationId && c.UserId == userId,
             cancellationToken);
         if (conv is null)
             return NotFound();
@@ -144,7 +145,8 @@ public class ConversationsController(
         var toRemove = await db.Messages
             .Where(m => m.ConversationId == conversationId && m.CreatedAt >= anchor.CreatedAt)
             .ToListAsync(cancellationToken);
-        db.Messages.RemoveRange(toRemove);
+        foreach (var m in toRemove)
+            m.IsActive = false;
         conv.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return NoContent();

@@ -9,4 +9,7 @@ public class Message
     public string Content { get; set; } = string.Empty;
     public string InputMode { get; set; } = "text";
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>When false, the message is soft-deleted (e.g. trimmed from edit-resend flow).</summary>
+    public bool IsActive { get; set; } = true;
 }

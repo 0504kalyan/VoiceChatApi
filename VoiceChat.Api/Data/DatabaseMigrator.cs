@@ -11,8 +11,7 @@ namespace VoiceChat.Api.Data;
 /// Startup calls <see cref="ApplyPendingMigrationsAsync"/>, which applies any pending migration files.
 /// </para>
 /// <para>
-/// Also runs an idempotent SQL repair for the soft-delete / archive schema so existing databases stay consistent
-/// if migration history was out of sync.
+/// Also runs an idempotent SQL repair for legacy databases (e.g. <c>RequestResponseArchives</c>, <c>IsActive</c> columns).
 /// </para>
 /// </summary>
 public static class DatabaseMigrator
@@ -39,45 +38,20 @@ public static class DatabaseMigrator
             logger.LogInformation("EF Core migrations applied successfully.");
         }
 
-        await EnsureSqlServerSoftDeleteAndArchiveAsync(db, logger, cancellationToken);
+        await EnsureSqlServerLegacySchemaAsync(db, logger, cancellationToken);
+        await EnsureUsersPasswordHashColumnAsync(db, logger, cancellationToken);
     }
 
     /// <summary>
-    /// Idempotent: ensures <c>Conversations</c> soft-delete columns, <c>RequestResponseArchives</c>, indexes, and migration history row exist.
+    /// Idempotent: ensures legacy <c>RequestResponseArchives</c> table / <c>IsActive</c> column where needed. Does not reference removed columns like <c>IsDeleted</c>.
     /// </summary>
-    private static async Task EnsureSqlServerSoftDeleteAndArchiveAsync(
+    private static async Task EnsureSqlServerLegacySchemaAsync(
         AppDbContext db,
         ILogger logger,
         CancellationToken cancellationToken)
     {
         const string sql = """
-IF NOT EXISTS (
-    SELECT 1 FROM sys.columns c
-    INNER JOIN sys.tables t ON c.object_id = t.object_id
-    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dbo' AND t.name = N'Conversations' AND c.name = N'IsDeleted')
-BEGIN
-    ALTER TABLE [dbo].[Conversations] ADD [IsDeleted] bit NOT NULL DEFAULT 0;
-END
-
-IF NOT EXISTS (
-    SELECT 1 FROM sys.columns c
-    INNER JOIN sys.tables t ON c.object_id = t.object_id
-    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dbo' AND t.name = N'Conversations' AND c.name = N'DeletedAt')
-BEGIN
-    ALTER TABLE [dbo].[Conversations] ADD [DeletedAt] datetimeoffset NULL;
-END
-
-IF NOT EXISTS (
-    SELECT 1 FROM sys.indexes i
-    INNER JOIN sys.tables t ON i.object_id = t.object_id
-    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dbo' AND t.name = N'Conversations' AND i.name = N'IX_Conversations_IsDeleted')
-BEGIN
-    CREATE NONCLUSTERED INDEX [IX_Conversations_IsDeleted] ON [dbo].[Conversations] ([IsDeleted]);
-END
-
+-- Legacy: RequestResponseArchives table
 IF NOT EXISTS (
     SELECT 1 FROM sys.tables t
     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
@@ -90,12 +64,29 @@ BEGIN
         [ResponseText] nvarchar(max) NOT NULL,
         [ResponseJson] nvarchar(max) NOT NULL,
         [CreatedAt] datetimeoffset NOT NULL,
+        [IsActive] bit NOT NULL CONSTRAINT [DF_RequestResponseArchives_IsActive] DEFAULT 1,
         CONSTRAINT [PK_RequestResponseArchives] PRIMARY KEY ([Id]),
         CONSTRAINT [FK_RequestResponseArchives_Conversations_ConversationId] FOREIGN KEY ([ConversationId])
             REFERENCES [dbo].[Conversations] ([Id]) ON DELETE CASCADE
     );
     CREATE NONCLUSTERED INDEX [IX_RequestResponseArchives_ConversationId_CreatedAt]
         ON [dbo].[RequestResponseArchives] ([ConversationId], [CreatedAt]);
+END
+
+-- Conversations use IsActive only; schema changes come from EF migration 20260409230000_IsActiveSoftDelete.
+-- Do not reference IsDeleted here: SQL Server validates the whole batch, so any [IsDeleted] text fails after that column is dropped.
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns c
+    INNER JOIN sys.tables t ON c.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo' AND t.name = N'RequestResponseArchives' AND c.name = N'IsActive')
+   AND EXISTS (
+    SELECT 1 FROM sys.tables t2
+    INNER JOIN sys.schemas s2 ON t2.schema_id = s2.schema_id
+    WHERE s2.name = N'dbo' AND t2.name = N'RequestResponseArchives')
+BEGIN
+    ALTER TABLE [dbo].[RequestResponseArchives] ADD [IsActive] bit NOT NULL CONSTRAINT [DF_RequestResponseArchives_IsActive2] DEFAULT 1;
 END
 
 IF NOT EXISTS (
@@ -117,6 +108,36 @@ END
             logger.LogError(ex,
                 "Schema compatibility script failed. Check SQL Server permissions and that the Conversations table exists.");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Idempotent: adds <c>Users.PasswordHash</c> when missing (e.g. DB created before EF migration applied).
+    /// </summary>
+    private static async Task EnsureUsersPasswordHashColumnAsync(
+        AppDbContext db,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns c
+    INNER JOIN sys.tables t ON c.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo' AND t.name = N'Users' AND c.name = N'PasswordHash')
+BEGIN
+    ALTER TABLE [dbo].[Users] ADD [PasswordHash] nvarchar(max) NULL;
+END
+""";
+
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+            logger.LogDebug("Users.PasswordHash column compatibility check executed.");
+        }
+        catch (SqlException ex)
+        {
+            logger.LogWarning(ex, "Could not ensure Users.PasswordHash column exists.");
         }
     }
 }

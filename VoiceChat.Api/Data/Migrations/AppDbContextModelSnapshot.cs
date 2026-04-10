@@ -31,10 +31,7 @@ namespace VoiceChat.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.Property<DateTimeOffset?>("DeletedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<bool>("IsDeleted")
+                    b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
                     b.Property<string>("Model")
@@ -54,7 +51,7 @@ namespace VoiceChat.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsDeleted");
+                    b.HasIndex("IsActive");
 
                     b.HasIndex("UserId", "UpdatedAt");
 
@@ -76,6 +73,9 @@ namespace VoiceChat.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
 
                     b.Property<string>("InputMode")
                         .IsRequired()
@@ -105,6 +105,9 @@ namespace VoiceChat.Api.Data.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
 
                     b.Property<string>("ResponseJson")
                         .IsRequired()
@@ -138,17 +141,144 @@ namespace VoiceChat.Api.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("bit");
+
                     b.Property<string>("ExternalId")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("GoogleSub")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("nvarchar(max)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ExternalId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.HasIndex("GoogleSub")
+                        .IsUnique()
+                        .HasFilter("[GoogleSub] IS NOT NULL AND [IsActive] = 1");
+
+                    b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasFilter("[NormalizedEmail] IS NOT NULL AND [IsActive] = 1");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("VoiceChat.Api.Models.Entities.OtpVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("FailedAttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<byte>("Purpose")
+                        .HasColumnType("tinyint");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("NormalizedEmail", "Purpose", "ExpiresAt");
+
+                    b.ToTable("OtpVerifications");
+
+                    b.HasOne("VoiceChat.Api.Models.Entities.User", "User")
+                        .WithMany("OtpVerifications")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("VoiceChat.Api.Models.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UserId", "ExpiresAt");
+
+                    b.ToTable("PasswordResetTokens");
+
+                    b.HasOne("VoiceChat.Api.Models.Entities.User", "User")
+                        .WithMany("PasswordResetTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("VoiceChat.Api.Models.Entities.Conversation", b =>

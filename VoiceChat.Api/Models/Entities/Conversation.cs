@@ -10,8 +10,8 @@ public class Conversation
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
-    public bool IsDeleted { get; set; }
-    public DateTimeOffset? DeletedAt { get; set; }
+    /// <summary>When false, the conversation is soft-deleted (hidden from the user).</summary>
+    public bool IsActive { get; set; } = true;
 
     public ICollection<Message> Messages { get; set; } = new List<Message>();
     public ICollection<RequestResponseArchive> ResponseArchives { get; set; } = new List<RequestResponseArchive>();

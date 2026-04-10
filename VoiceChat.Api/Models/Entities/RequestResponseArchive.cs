@@ -19,4 +19,7 @@ public class RequestResponseArchive
     public string ResponseJson { get; set; } = string.Empty;
 
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>When false, the archive row is soft-deleted.</summary>
+    public bool IsActive { get; set; } = true;
 }
