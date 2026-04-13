@@ -77,6 +77,10 @@ namespace VoiceChat.Api.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsGenerationComplete")
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("InputMode")
                         .IsRequired()
                         .HasMaxLength(20)

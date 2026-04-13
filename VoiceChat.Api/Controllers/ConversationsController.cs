@@ -55,6 +55,32 @@ public class ConversationsController(
         return Ok(new ConversationListItemDto(conv.Id, conv.Title, conv.Model, conv.UpdatedAt));
     }
 
+    /// <summary>Update conversation fields (e.g. <see cref="Conversation.Model"/> for the next assistant reply).</summary>
+    [HttpPatch("{id:guid}")]
+    public async Task<ActionResult<ConversationListItemDto>> Update(
+        Guid id,
+        [FromBody] UpdateConversationRequest? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.RequireUserId();
+        var conv = await db.Conversations.FirstOrDefaultAsync(
+            c => c.Id == id && c.UserId == userId,
+            cancellationToken);
+        if (conv is null)
+            return NotFound();
+
+        if (body is not null && !string.IsNullOrWhiteSpace(body.Model))
+        {
+            conv.Model = body.Model.Trim();
+            if (conv.Model.Length > 100)
+                return BadRequest(new { message = "Model name is too long." });
+        }
+
+        conv.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new ConversationListItemDto(conv.Id, conv.Title, conv.Model, conv.UpdatedAt));
+    }
+
     [HttpGet("{id:guid}/messages")]
     public async Task<ActionResult<IReadOnlyList<MessageDto>>> Messages(Guid id, CancellationToken cancellationToken)
     {

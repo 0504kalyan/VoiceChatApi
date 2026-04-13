@@ -12,5 +12,6 @@ public static class LlmRuntime
     }
 
     /// <summary>Used when <see cref="OllamaOptions.DefaultModel"/> is not set in configuration.</summary>
+    /// <remarks>Use the short name so <c>ollama pull llama3.2</c> matches config on all Ollama versions.</remarks>
     public const string ProductDefaultChatModel = "llama3.2";
 }

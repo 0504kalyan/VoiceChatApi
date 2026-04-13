@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using VoiceChat.Api.Data;
 using VoiceChat.Api.Interfaces;
@@ -46,19 +47,29 @@ public class ChatOrchestrator(
         await db.SaveChangesAsync(cancellationToken);
 
         var maxHistory = Math.Max(4, ollamaOptions.Value.MaxHistoryMessages);
+        // Newest N messages only — avoids loading entire threads before the first model token.
+        // Omit assistant messages that were cut off by "Stop" — they confuse the model and add tokens for the next turn.
         var rows = await db.Messages
+            .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
+            .Where(m => m.Role != "assistant" || m.IsGenerationComplete)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(maxHistory)
             .OrderBy(m => m.CreatedAt)
             .Select(m => new { m.Role, m.Content })
             .ToListAsync(cancellationToken);
-        if (rows.Count > maxHistory)
-            rows = rows.Skip(rows.Count - maxHistory).ToList();
         var history = rows.Select(r => (r.Role, r.Content)).ToList();
+
+        var messagesForLlm = new List<(string Role, string Content)>();
+        var system = ollamaOptions.Value.SystemPrompt?.Trim();
+        if (!string.IsNullOrEmpty(system))
+            messagesForLlm.Add(("system", system));
+        messagesForLlm.AddRange(history);
 
         var buffer = new System.Text.StringBuilder();
         string? recoveryFallback = null;
 
-        await using var enumerator = llm.StreamChatAsync(conversation.Model, history, cancellationToken)
+        await using var enumerator = llm.StreamChatAsync(conversation.Model, messagesForLlm, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         while (true)
@@ -128,7 +139,8 @@ public class ChatOrchestrator(
             Role = "assistant",
             Content = replyText,
             InputMode = "text",
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsGenerationComplete = !stoppedEarly
         };
         db.Messages.Add(assistant);
 
@@ -158,9 +170,89 @@ public class ChatOrchestrator(
         });
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
-        if (string.IsNullOrEmpty(conversation.Title) && userMessage.Content.Length > 0)
-            conversation.Title = userMessage.Content.Length <= 80 ? userMessage.Content : userMessage.Content[..80] + "…";
+
+        // Stopped early: use a quick title only — skip the extra LLM title call so Ollama is free for the user's next prompt.
+        if (string.IsNullOrWhiteSpace(conversation.Title))
+        {
+            if (stoppedEarly)
+                conversation.Title = BuildFallbackTitleFromUserMessage(userMessage.Content);
+            else
+                await TrySetSummarizedTitleAsync(conversation, userMessage.Content, replyText, cancellationToken);
+        }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>ChatGPT-style short title from first exchange; falls back to truncated user text if LLM fails.</summary>
+    private async Task TrySetSummarizedTitleAsync(
+        Conversation conversation,
+        string userContent,
+        string assistantContent,
+        CancellationToken cancellationToken)
+    {
+        var fallback = BuildFallbackTitleFromUserMessage(userContent);
+        try
+        {
+            var titlePrompt = new List<(string Role, string Content)>
+            {
+                (
+                    "system",
+                    "You write very short chat titles only. Reply with a title of at most 8 words. " +
+                    "No quotation marks around the title. No preamble or explanation."
+                ),
+                (
+                    "user",
+                    "Propose one concise title for this conversation.\n\nUser message:\n" +
+                    TruncateForTitle(userContent, 700) +
+                    "\n\nAssistant reply (may be long):\n" +
+                    TruncateForTitle(assistantContent, 700)
+                )
+            };
+
+            var generated = await llm.CompleteChatNonStreamingAsync(conversation.Model, titlePrompt, cancellationToken);
+            var cleaned = SanitizeGeneratedTitle(generated);
+            conversation.Title = !string.IsNullOrWhiteSpace(cleaned) ? cleaned : fallback;
+        }
+        catch (OperationCanceledException)
+        {
+            conversation.Title = fallback;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Summarized title failed for conversation {ConversationId}", conversation.Id);
+            conversation.Title = fallback;
+        }
+
+        if (conversation.Title != null && conversation.Title.Length > 500)
+            conversation.Title = conversation.Title[..500].Trim();
+    }
+
+    private static string BuildFallbackTitleFromUserMessage(string userContent)
+    {
+        var t = userContent.ReplaceLineEndings(" ").Trim();
+        while (t.Contains("  ", StringComparison.Ordinal))
+            t = t.Replace("  ", " ", StringComparison.Ordinal);
+        if (t.Length <= 80)
+            return t;
+        return t[..77].TrimEnd() + "…";
+    }
+
+    private static string TruncateForTitle(string s, int max)
+    {
+        var t = s.Trim();
+        return t.Length <= max ? t : t[..max] + "…";
+    }
+
+    private static string? SanitizeGeneratedTitle(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        var t = raw.Trim().Trim('"', '\'', '`');
+        t = t.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var parts = t.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        t = parts.Length > 0 ? parts[0] : t.Trim();
+        if (t.StartsWith("Title:", StringComparison.OrdinalIgnoreCase))
+            t = t[6..].Trim();
+        return t.Length > 120 ? t[..120].Trim() : t;
     }
 }

@@ -40,6 +40,13 @@ builder.Services
 
 builder.Services
     .AddHttpClient<ILlmClient, OllamaLlmClient>()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+        KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+        EnableMultipleHttp2Connections = true
+    })
     .ConfigureHttpClient((sp, client) =>
     {
         var opts = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;

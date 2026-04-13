@@ -97,8 +97,8 @@ public class PasswordResetService(
         IPasswordHasher<User> passwordHasher,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 8)
-            return (false, "Password must be at least 8 characters.");
+        if (!PasswordPolicy.IsValid(newPassword, out var pwdErr))
+            return (false, pwdErr);
 
         var user = await db.Users.FirstOrDefaultAsync(
             u => u.NormalizedEmail == normalizedEmail && u.EmailConfirmed,

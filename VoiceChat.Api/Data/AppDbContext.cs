@@ -90,6 +90,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.Id);
             e.Property(x => x.Role).HasMaxLength(20);
             e.Property(x => x.InputMode).HasMaxLength(20);
+            e.Property(x => x.IsGenerationComplete).HasDefaultValue(true);
             e.HasIndex(x => new { x.ConversationId, x.CreatedAt });
             e.HasOne(x => x.Conversation).WithMany(x => x.Messages).HasForeignKey(x => x.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);

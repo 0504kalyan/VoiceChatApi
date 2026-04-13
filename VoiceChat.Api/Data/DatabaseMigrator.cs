@@ -89,6 +89,20 @@ BEGIN
     ALTER TABLE [dbo].[RequestResponseArchives] ADD [IsActive] bit NOT NULL CONSTRAINT [DF_RequestResponseArchives_IsActive2] DEFAULT 1;
 END
 
+-- Messages.IsGenerationComplete (EF migration 20260410113000); idempotent for DBs missing the column
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns c
+    INNER JOIN sys.tables t ON c.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo' AND t.name = N'Messages' AND c.name = N'IsGenerationComplete')
+   AND EXISTS (
+    SELECT 1 FROM sys.tables t2
+    INNER JOIN sys.schemas s2 ON t2.schema_id = s2.schema_id
+    WHERE s2.name = N'dbo' AND t2.name = N'Messages')
+BEGIN
+    ALTER TABLE [dbo].[Messages] ADD [IsGenerationComplete] bit NOT NULL CONSTRAINT [DF_Messages_IsGenerationComplete] DEFAULT 1;
+END
+
 IF NOT EXISTS (
     SELECT 1 FROM [dbo].[__EFMigrationsHistory]
     WHERE [MigrationId] = N'20260328061000_SoftDeleteAndResponseArchive')

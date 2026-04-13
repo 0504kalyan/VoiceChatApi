@@ -12,4 +12,10 @@ public class Message
 
     /// <summary>When false, the message is soft-deleted (e.g. trimmed from edit-resend flow).</summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// For assistant messages: false when the user stopped generation mid-stream (partial reply).
+    /// Those messages are not sent back to the model as context so the next answer stays fresh and fast.
+    /// </summary>
+    public bool IsGenerationComplete { get; set; } = true;
 }

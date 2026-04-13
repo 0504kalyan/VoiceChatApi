@@ -24,8 +24,6 @@ public class AuthController(
     IOptions<GoogleAuthOptions> googleOptions,
     ILogger<AuthController> log) : ControllerBase
 {
-    private const int MinPasswordLength = 8;
-
     private readonly WebClientOptions _web = webOptions.Value;
     private readonly GoogleAuthOptions _google = googleOptions.Value;
 
@@ -89,8 +87,8 @@ public class AuthController(
         if (!GmailAddress.IsAllowedGmail(body.Email))
             return BadRequest(new { message = "Invalid email." });
 
-        if (string.IsNullOrWhiteSpace(body.Password) || body.Password.Length < MinPasswordLength)
-            return BadRequest(new { message = $"Password must be at least {MinPasswordLength} characters." });
+        if (!PasswordPolicy.IsValid(body.Password, out var pwdErr))
+            return BadRequest(new { message = pwdErr });
 
         var norm = GmailAddress.Normalize(body.Email);
         var (ok, err) = await otp.VerifyRegisterOtpAsync(norm, body.Code, cancellationToken);

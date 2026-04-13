@@ -34,30 +34,21 @@ public class OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options) :
     {
         var resolved = ResolveModel(model);
         var opts = options.Value;
-        var ollamaRuntimeOptions = new Dictionary<string, int>();
-        if (opts.NumCtx > 0)
-            ollamaRuntimeOptions["num_ctx"] = opts.NumCtx;
-        if (opts.NumPredict is { } np && np > 0)
-            ollamaRuntimeOptions["num_predict"] = np;
+        var runtimeOptions = BuildRuntimeOptions(opts);
+        var messagePayload = messages.Select(m => new OllamaApiMessage { Role = m.Role, Content = m.Content }).ToList();
 
-        object payload = ollamaRuntimeOptions.Count > 0
-            ? new
-            {
-                model = resolved,
-                stream = true,
-                messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToList(),
-                options = ollamaRuntimeOptions
-            }
-            : new
-            {
-                model = resolved,
-                stream = true,
-                messages = messages.Select(m => new { role = m.Role, content = m.Content }).ToList()
-            };
+        var body = new OllamaChatRequest
+        {
+            Model = resolved,
+            Stream = true,
+            Messages = messagePayload,
+            Options = runtimeOptions.Count > 0 ? runtimeOptions : null,
+            KeepAlive = string.IsNullOrWhiteSpace(opts.KeepAlive) ? null : opts.KeepAlive.Trim()
+        };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/chat")
         {
-            Content = JsonContent.Create(payload, options: SerializeOptions)
+            Content = JsonContent.Create(body, options: SerializeOptions)
         };
 
         HttpResponseMessage? response;
@@ -88,8 +79,8 @@ public class OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options) :
         {
             if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                yield return FormatOllamaHttpError(response.StatusCode, body);
+                var bodyText = await response.Content.ReadAsStringAsync(cancellationToken);
+                yield return FormatOllamaHttpError(response.StatusCode, bodyText);
                 yield break;
             }
 
@@ -121,6 +112,84 @@ public class OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options) :
                     yield break;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> CompleteChatNonStreamingAsync(
+        string model,
+        IReadOnlyList<(string Role, string Content)> messages,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = ResolveModel(model);
+        var opts = options.Value;
+        var messagePayload = messages.Select(m => new OllamaApiMessage { Role = m.Role, Content = m.Content }).ToList();
+
+        var titleOptions = new Dictionary<string, object>
+        {
+            ["num_ctx"] = 1024,
+            ["num_predict"] = 64,
+            ["temperature"] = 0.35
+        };
+
+        var body = new OllamaChatRequest
+        {
+            Model = resolved,
+            Stream = false,
+            Messages = messagePayload,
+            Options = titleOptions,
+            KeepAlive = string.IsNullOrWhiteSpace(opts.KeepAlive) ? null : opts.KeepAlive.Trim()
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/chat")
+        {
+            Content = JsonContent.Create(body, options: SerializeOptions)
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or SocketException)
+        {
+            return null;
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<OllamaNonStreamChatResponse>(json, DeserializeOptions);
+                var text = parsed?.Message?.Content?.Trim();
+                return string.IsNullOrEmpty(text) ? null : text;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static Dictionary<string, object> BuildRuntimeOptions(OllamaOptions opts)
+    {
+        var o = new Dictionary<string, object>();
+        if (opts.NumCtx > 0)
+            o["num_ctx"] = opts.NumCtx;
+        if (opts.NumPredict is { } np && np > 0)
+            o["num_predict"] = np;
+        if (opts.Temperature is { } t)
+            o["temperature"] = t;
+        if (opts.TopP is { } tp)
+            o["top_p"] = tp;
+        if (opts.TopK is { } tk)
+            o["top_k"] = tk;
+        if (opts.NumBatch is { } nb && nb > 0)
+            o["num_batch"] = nb;
+        return o;
     }
 
     private string ResolveModel(string requested)
@@ -174,10 +243,42 @@ public class OllamaLlmClient(HttpClient http, IOptions<OllamaOptions> options) :
         return t[..maxLen] + "…";
     }
 
+    private sealed class OllamaChatRequest
+    {
+        [JsonPropertyName("model")]
+        public required string Model { get; init; }
+
+        [JsonPropertyName("stream")]
+        public bool Stream { get; init; }
+
+        [JsonPropertyName("messages")]
+        public required List<OllamaApiMessage> Messages { get; init; }
+
+        [JsonPropertyName("options")]
+        public Dictionary<string, object>? Options { get; init; }
+
+        [JsonPropertyName("keep_alive")]
+        public string? KeepAlive { get; init; }
+    }
+
+    private sealed class OllamaApiMessage
+    {
+        [JsonPropertyName("role")]
+        public required string Role { get; init; }
+
+        [JsonPropertyName("content")]
+        public required string Content { get; init; }
+    }
+
     private sealed class OllamaChatStreamChunk
     {
         public OllamaDeltaMessage? Message { get; set; }
         public bool Done { get; set; }
+    }
+
+    private sealed class OllamaNonStreamChatResponse
+    {
+        public OllamaDeltaMessage? Message { get; set; }
     }
 
     private sealed class OllamaDeltaMessage
