@@ -35,3 +35,8 @@ Then:
   git push
 
 Render: Root Directory = . ; Dockerfile Path = Dockerfile ; Docker Context = .
+
+Runtime (required)
+------------------
+Set ConnectionStrings__DefaultConnection to a cloud SQL Server (e.g. Azure SQL). Local Server=. will crash on startup.
+Jwt__SigningKey (>=32 chars), Cors__Origins__0 for production.
