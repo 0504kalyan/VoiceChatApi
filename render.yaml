@@ -1,8 +1,11 @@
 # VoiceChat API — PostgreSQL via Supabase (or any Postgres host).
 #
+# Render is IPv4-only: use Supabase Connect → Session pooler (host *.pooler.supabase.com), NOT only db.*.supabase.co
+# if you see "Network is unreachable" to an IPv6 address. See Api/SUPABASE.md
+#
 # Required in Render Dashboard → Environment (never commit secrets):
 # - SupabaseCredentials__ConnectionString  OR  ConnectionStrings__DefaultConnection
-#   (Npgsql format: Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true)
+#   (Npgsql: pooler Host=aws-0-REGION.pooler.supabase.com;Username=postgres.PROJECT_REF;Port=5432;...)
 # - Jwt__SigningKey = random string, 32+ characters
 
 services:

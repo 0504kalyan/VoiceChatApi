@@ -12,23 +12,42 @@ The committed `appsettings.json` includes your Supabase **host** with **`Passwor
 
 ## 2. Get the database connection string
 
-1. In the Supabase dashboard, open your project.
-2. Go to **Project Settings** (gear) → **Database**.
-3. Under **Connection string**, choose the **URI** or **.NET** style and copy it. You need these parts:
+1. In the Supabase dashboard, open your project and click **Connect** (or **Project Settings** → **Database**).
+2. Prefer the **Session pooler** or **Transaction pooler** connection details when deploying to **Render**, **Railway**, **Fly.io**, or any host that is **IPv4-only**.
 
-   - **Host** (e.g. `db.<project-ref>.supabase.co` or a **pooler** host like `aws-0-...pooler.supabase.com`)
-   - **Port** — direct Postgres is often **5432**; the **transaction pooler** often uses **6543** (see Supabase docs for your chosen mode).
-   - **Database** — usually `postgres`.
-   - **User** — usually `postgres`.
-   - **Password** — the database password you set when creating the project.
+### Render / IPv6 (“Network is unreachable”, IPv6 address in logs)
 
-4. Build an **Npgsql** connection string (what this API expects), for example:
+Supabase’s **direct** host `db.<project-ref>.supabase.co` often resolves to **IPv6**. Many clouds (including Render’s free tier) **cannot route IPv6** to the public internet, so Npgsql fails with `SocketException: Network is unreachable` to an IPv6 address.
 
-   ```text
-   Host=db.YOUR_PROJECT_REF.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_DB_PASSWORD;SSL Mode=Require;Trust Server Certificate=true
-   ```
+**Permanent fix (pick one):**
 
-   Adjust **Host**, **Port**, and flags to match the **Session** vs **Pool** connection Supabase shows for your plan. If IPv6 causes issues on your network, Supabase documents **IPv4 add-on** or pooler workarounds.
+1. **Use the pooler (recommended, no extra cost)**  
+   - In Supabase, open **Connect**.  
+   - Copy the **Session pooler** connection (host like `aws-0-<REGION>.pooler.supabase.com`, port **5432**).  
+   - Username is often `postgres.<PROJECT_REF>` (not only `postgres`) — use exactly what Supabase shows.  
+   - Build your Npgsql string from that (same `Password`, `SSL Mode=Require`, etc.).  
+   - **EF Core migrations** work best with **Session pooler** or direct DB; avoid **Transaction** mode (port **6543**) for migrations if Supabase docs warn about DDL limitations.
+
+2. **IPv4 add-on (Supabase paid add-on)**  
+   - Enables IPv4 for the **direct** `db.*` connection if you need direct access without the pooler.
+
+Do **not** rely on `db.*.supabase.co` alone on IPv4-only hosts unless you have confirmed IPv4 routing (add-on or DNS behavior).
+
+### Example Npgsql strings (shape only — copy values from your **Connect** panel)
+
+Direct (may be IPv6-only):
+
+```text
+Host=db.YOUR_PROJECT_REF.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_DB_PASSWORD;SSL Mode=Require;Trust Server Certificate=true
+```
+
+Session pooler (often IPv4-friendly for Render):
+
+```text
+Host=aws-0-YOUR_REGION.pooler.supabase.com;Port=5432;Database=postgres;Username=postgres.YOUR_PROJECT_REF;Password=YOUR_DB_PASSWORD;SSL Mode=Require;Trust Server Certificate=true
+```
+
+**Required:** `Username` must be `postgres.` plus your **project ref** (from the Supabase URL or Connect panel). Using only `postgres` against a `*.pooler.supabase.com` host fails with `(ENOIDENTIFIER) no tenant identifier`. The API sets `Gss Encryption Mode=Disable` automatically so Docker images without Kerberos libraries still connect.
 
 ## 3. Declare the connection string for this API
 

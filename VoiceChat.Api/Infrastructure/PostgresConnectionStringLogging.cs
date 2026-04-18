@@ -52,12 +52,25 @@ public static class PostgresConnectionStringLogging
         try
         {
             var b = new NpgsqlConnectionStringBuilder(connectionString);
-            return $"PostgreSQL: Host={b.Host}; Port={b.Port}; Database={b.Database}; SSL={b.SslMode}";
+            var user = string.IsNullOrEmpty(b.Username) ? "(none)" : b.Username;
+            var pwdHint = DescribePasswordForLog(b.Password);
+            return
+                $"PostgreSQL: Host={b.Host}; Port={b.Port}; Database={b.Database}; Username={user}; Password={pwdHint}; SSL={b.SslMode}";
         }
         catch
         {
             return "PostgreSQL: (connection string could not be parsed — check for SQL Server keywords like Trusted_Connection)";
         }
+    }
+
+    /// <summary>
+    /// Never logs the password. Use length-only hint so 28P01 can be debugged without exposing secrets.
+    /// </summary>
+    private static string DescribePasswordForLog(string? password)
+    {
+        if (string.IsNullOrEmpty(password))
+            return "EMPTY — set Password= in user secrets / .env / Render (error 28P01 = wrong or missing password)";
+        return $"set, length {password.Length} (value never logged)";
     }
 
     /// <summary>

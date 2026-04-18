@@ -48,6 +48,8 @@ if (string.IsNullOrWhiteSpace(conn))
 }
 
 PostgresConnectionStringLogging.ThrowIfNotNpgsqlConnectionString(conn);
+NpgsqlSupabaseConnection.ThrowIfPoolerNeedsTenantUsername(conn);
+conn = NpgsqlSupabaseConnection.PrepareConnectionString(conn);
 PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);
 
 Console.WriteLine(
