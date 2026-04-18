@@ -1,8 +1,8 @@
-# Render runs Linux containers — not Windows. Do NOT use Server=. or Trusted_Connection/Integrated Security.
-# Use Azure SQL (or RDS) with SQL authentication: User Id=...; Password=...; Encrypt=True (see Azure portal connection string).
+# VoiceChat API — PostgreSQL via Supabase (or any Postgres host).
 #
-# Required env vars (Dashboard → Environment):
-# - ConnectionStrings__DefaultConnection = cloud SQL Server connection string (see above)
+# Required in Render Dashboard → Environment (never commit secrets):
+# - SupabaseCredentials__ConnectionString  OR  ConnectionStrings__DefaultConnection
+#   (Npgsql format: Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true)
 # - Jwt__SigningKey = random string, 32+ characters
 
 services:
@@ -17,8 +17,8 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
-      # Set the value only in the Render Dashboard (Environment) — never commit secrets.
-      # ASP.NET Core maps this to ConnectionStrings:DefaultConnection.
+      - key: SupabaseCredentials__ConnectionString
+        sync: false
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: Jwt__SigningKey

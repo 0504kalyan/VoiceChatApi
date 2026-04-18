@@ -1,8 +1,7 @@
 # VoiceChatApi GitHub repo — copy to REPOSITORY ROOT as render.yaml
-# Layout: VoiceChat.sln, VoiceChat.Api/ (Dockerfile must be at repo root; use Dockerfile.for-VoiceChatApi-github-root).
+# Layout: VoiceChat.sln, VoiceChat.Api/ (Dockerfile at repo root).
 #
-# Render = Linux. Use SQL auth to Azure SQL / RDS (not Trusted_Connection / Server=.).
-# Required: ConnectionStrings__DefaultConnection, Jwt__SigningKey (32+ chars).
+# Production: set SupabaseCredentials__ConnectionString (or ConnectionStrings__DefaultConnection) + Jwt__SigningKey in Dashboard.
 
 services:
   - type: web
@@ -16,6 +15,8 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      - key: SupabaseCredentials__ConnectionString
+        sync: false
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: Jwt__SigningKey

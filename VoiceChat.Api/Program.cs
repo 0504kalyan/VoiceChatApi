@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using EFCore.NamingConventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,7 +16,7 @@ using VoiceChat.Api.Interfaces;
 using VoiceChat.Api.Options;
 using VoiceChat.Api.Services;
 
-// Local ".env" is git-ignored — use GoogleCredentials__* (see .env.example). Never commit real secrets.
+// Local ".env" is git-ignored — GoogleCredentials__*, SupabaseCredentials__* (see .env.example). Never commit secrets.
 LocalDotEnvLoader.TryLoad();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,17 +43,23 @@ if (string.IsNullOrWhiteSpace(conn))
 {
     throw new InvalidOperationException(
         "Connection string 'ConnectionStrings:DefaultConnection' is missing or empty. " +
-        "Local: use ASPNETCORE_ENVIRONMENT=Development (see appsettings.Development.json) or set ConnectionStrings__DefaultConnection. " +
-        "Render: set ConnectionStrings__DefaultConnection to your cloud SQL Server string (Sql authentication, Encrypt=True as required).");
+        "Set SupabaseCredentials__ConnectionString (Supabase → Project Settings → Database) or ConnectionStrings__DefaultConnection. " +
+        "Local Development: see appsettings.Development.json or .env (see .env.example).");
 }
 
-SqlServerConnectionStringLogging.ThrowIfProductionUsesIncompatibleSql(builder.Environment, conn);
+PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);
 
 Console.WriteLine(
     $"[VoiceChat.Api] Environment={builder.Environment.EnvironmentName}; " +
-    SqlServerConnectionStringLogging.FormatForConsole(conn));
+    PostgresConnectionStringLogging.FormatForConsole(conn));
 
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(conn));
+builder.Services.Configure<SupabaseCredentialsOptions>(builder.Configuration.GetSection(SupabaseCredentialsOptions.SectionName));
+
+builder.Services.AddDbContext<AppDbContext>(o =>
+{
+    o.UseNpgsql(conn);
+    o.UseSnakeCaseNamingConvention();
+});
 
 builder.Services
     .AddOptions<OllamaOptions>()
@@ -221,24 +228,6 @@ app.MapHub<ChatHub>("/hubs/chat");
 using (var scope = app.Services.CreateScope())
 {
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Database");
-    if (SqlServerDatabaseBootstrap.ShouldAttemptCreateCatalog(conn))
-    {
-        try
-        {
-            await SqlServerDatabaseBootstrap.EnsureDatabaseExistsAsync(conn);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex,
-                "Could not auto-create the database catalog. If the database already exists, migrations will still run.");
-        }
-    }
-    else
-    {
-        logger.LogInformation(
-            "Skipping SQL Server catalog auto-create (Azure SQL / unsupported host). Create the database in your cloud provider, then deploy.");
-    }
-
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DatabaseMigrator.ApplyPendingMigrationsAsync(db, logger);
 }

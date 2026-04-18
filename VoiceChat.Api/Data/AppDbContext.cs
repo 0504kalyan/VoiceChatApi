@@ -4,8 +4,7 @@ using VoiceChat.Api.Models.Entities;
 namespace VoiceChat.Api.Data;
 
 /// <summary>
-/// Maps to SQL Server tables: Users, Conversations, Messages (see Data/Migrations).
-/// Startup runs <see cref="SqlServerDatabaseBootstrap.EnsureDatabaseExistsAsync"/> then applies migrations to <c>ConnectionStrings:DefaultConnection</c>.
+/// Maps to PostgreSQL (Supabase) with snake_case table/column names. Migrations apply on startup.
 /// </summary>
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
@@ -21,17 +20,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<User>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.ExternalId).IsUnique().HasFilter("[IsActive] = 1");
+            e.HasIndex(x => x.ExternalId).IsUnique().HasFilter("\"is_active\" = TRUE");
             e.Property(x => x.ExternalId).HasMaxLength(255);
             e.Property(x => x.DisplayName).HasMaxLength(200);
             e.Property(x => x.GoogleSub).HasMaxLength(128);
             e.HasIndex(x => x.GoogleSub).IsUnique()
-                .HasFilter("[GoogleSub] IS NOT NULL AND [IsActive] = 1");
+                .HasFilter("\"google_sub\" IS NOT NULL AND \"is_active\" = TRUE");
             e.Property(x => x.Email).HasMaxLength(320);
             e.Property(x => x.NormalizedEmail).HasMaxLength(320);
             e.HasIndex(x => x.NormalizedEmail).IsUnique()
-                .HasFilter("[NormalizedEmail] IS NOT NULL AND [IsActive] = 1");
-            e.Property(x => x.PasswordHash).HasColumnType("nvarchar(max)");
+                .HasFilter("\"normalized_email\" IS NOT NULL AND \"is_active\" = TRUE");
+            e.Property(x => x.PasswordHash).HasColumnType("text");
             e.HasQueryFilter(u => u.IsActive);
         });
 
@@ -76,9 +75,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<RequestResponseArchive>(e =>
         {
             e.HasKey(x => x.Id);
-            e.Property(x => x.UserRequest).HasColumnType("nvarchar(max)");
-            e.Property(x => x.ResponseText).HasColumnType("nvarchar(max)");
-            e.Property(x => x.ResponseJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.UserRequest).HasColumnType("text");
+            e.Property(x => x.ResponseText).HasColumnType("text");
+            e.Property(x => x.ResponseJson).HasColumnType("text");
             e.HasIndex(x => new { x.ConversationId, x.CreatedAt });
             e.HasOne(x => x.Conversation).WithMany(x => x.ResponseArchives).HasForeignKey(x => x.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
