@@ -1,3 +1,8 @@
+# Required env vars on Render (Dashboard → Environment):
+# - ConnectionStrings__DefaultConnection = Azure SQL / RDS connection string (Sql auth; Encrypt=True per provider)
+# - Jwt__SigningKey = random string, 32+ characters
+# Optional: GoogleCredentials__*, Email__*, Ollama__BaseUrl (if not localhost)
+
 services:
   - type: web
     name: voicechat-api
@@ -7,3 +12,6 @@ services:
     dockerfilePath: Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production

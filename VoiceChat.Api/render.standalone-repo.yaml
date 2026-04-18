@@ -1,5 +1,9 @@
 # VoiceChatApi GitHub repo — copy to REPOSITORY ROOT as render.yaml
 # Layout: VoiceChat.sln, VoiceChat.Api/ (Dockerfile must be at repo root; use Dockerfile.for-VoiceChatApi-github-root).
+#
+# Required env vars on Render (Dashboard → Environment):
+# - ConnectionStrings__DefaultConnection = Azure SQL / RDS connection string (Sql auth; Encrypt=True per provider)
+# - Jwt__SigningKey = random string, 32+ characters
 
 services:
   - type: web
@@ -10,3 +14,6 @@ services:
     dockerfilePath: Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production

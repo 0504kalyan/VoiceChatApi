@@ -37,8 +37,17 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-var conn = builder.Configuration.GetConnectionString("DefaultConnection")
-           ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+var conn = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(conn))
+{
+    throw new InvalidOperationException(
+        "Connection string 'ConnectionStrings:DefaultConnection' is missing or empty. " +
+        "Local: use ASPNETCORE_ENVIRONMENT=Development (see appsettings.Development.json) or set ConnectionStrings__DefaultConnection. " +
+        "Render: set ConnectionStrings__DefaultConnection to your cloud SQL Server string (Sql authentication, Encrypt=True as required).");
+}
+
+Console.WriteLine("[VoiceChat.Api] " + SqlServerConnectionStringLogging.FormatForConsole(conn));
+
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(conn));
 
 builder.Services
@@ -208,14 +217,22 @@ app.MapHub<ChatHub>("/hubs/chat");
 using (var scope = app.Services.CreateScope())
 {
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Database");
-    try
+    if (SqlServerDatabaseBootstrap.ShouldAttemptCreateCatalog(conn))
     {
-        await SqlServerDatabaseBootstrap.EnsureDatabaseExistsAsync(conn);
+        try
+        {
+            await SqlServerDatabaseBootstrap.EnsureDatabaseExistsAsync(conn);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Could not auto-create the database catalog. If the database already exists, migrations will still run.");
+        }
     }
-    catch (Exception ex)
+    else
     {
-        logger.LogWarning(ex,
-            "Could not auto-create the database catalog. If the database already exists, migrations will still run.");
+        logger.LogInformation(
+            "Skipping SQL Server catalog auto-create (Azure SQL / unsupported host). Create the database in your cloud provider, then deploy.");
     }
 
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
