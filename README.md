@@ -8,7 +8,7 @@ Projects are **siblings at the repository root** (not under `src/`):
 
 | Folder | Description |
 |--------|--------------|
-| **`VoiceChat.Api/`** | ASP.NET Core, EF Core SQL Server, SignalR `ChatHub`, `ILlmClient` → local **Ollama** (`/api/chat`) |
+| **`VoiceChat.Api/`** | ASP.NET Core, EF Core SQL Server, SignalR `ChatHub`, `ILlmClient` → local **Ollama** (`/api/chat`). Includes [`render.yaml`](VoiceChat.Api/render.yaml) for [Render](https://render.com) (set Blueprint path to `Api/VoiceChat.Api/render.yaml`). |
 | **`VoiceChat.Web/`** | Angular UI, `@microsoft/signalr`, voice input via the browser |
 | **`docs/`** | Architecture notes (`VoiceChat.Api.md`, `VoiceChat.Web.md`) |
 | **`VoiceChat.sln`** | **Visual Studio solution** (classic `.sln`) — open this file to load the API project |
