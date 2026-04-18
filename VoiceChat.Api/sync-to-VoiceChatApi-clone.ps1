@@ -1,7 +1,8 @@
-# Copies Docker + Render files from THIS folder (Api/VoiceChat.Api) into your standalone
-# VoiceChatApi Git clone so you can commit and fix Render "Dockerfile not found".
+# Copies Docker + Render files for the VoiceChatApi repo layout:
+#   repo root: VoiceChat.sln
+#   VoiceChat.Api/Dockerfile, VoiceChat.Api.csproj, ...
 #
-# Usage (PowerShell, from repo root or this folder):
+# Usage:
 #   powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
 #
 param(
@@ -12,21 +13,24 @@ param(
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $target = Resolve-Path -LiteralPath $VoiceChatApiRepoRoot
+$projDir = Join-Path $target 'VoiceChat.Api'
+$csproj = Join-Path $projDir 'VoiceChat.Api.csproj'
 
-$csproj = Join-Path $target 'VoiceChat.Api.csproj'
 if (-not (Test-Path -LiteralPath $csproj)) {
-    Write-Error "VoiceChat.Api.csproj not found at: $csproj — wrong folder? Clone https://github.com/0504kalyan/VoiceChatApi and pass that path."
+    Write-Error "Expected project at: $csproj — pass the clone root of https://github.com/0504kalyan/VoiceChatApi (folder containing VoiceChat.Api\)."
 }
 
-Copy-Item -LiteralPath (Join-Path $here 'Dockerfile') -Destination (Join-Path $target 'Dockerfile') -Force
-Copy-Item -LiteralPath (Join-Path $here '.dockerignore') -Destination (Join-Path $target '.dockerignore') -Force
+Copy-Item -LiteralPath (Join-Path $here 'Dockerfile') -Destination (Join-Path $projDir 'Dockerfile') -Force
+Copy-Item -LiteralPath (Join-Path $here '.dockerignore') -Destination (Join-Path $projDir '.dockerignore') -Force
 Copy-Item -LiteralPath (Join-Path $here 'render.standalone-repo.yaml') -Destination (Join-Path $target 'render.yaml') -Force
 
-Write-Host "Copied Dockerfile, .dockerignore, render.yaml -> $target"
+Write-Host "Copied Dockerfile, .dockerignore -> $projDir"
+Write-Host "Copied render.yaml -> $target"
 Write-Host ""
-Write-Host "Next (in that repo):"
-Write-Host "  git status"
-Write-Host "  git add Dockerfile .dockerignore render.yaml"
-Write-Host "  git commit -m ""Add Docker files for Render"""
+Write-Host "Next (repo root):"
+Write-Host "  git add VoiceChat.Api/Dockerfile VoiceChat.Api/.dockerignore render.yaml"
+Write-Host "  git commit -m ""Add Docker + Render paths for VoiceChat.Api subfolder"""
 Write-Host "  git push origin main"
-Write-Host "Then redeploy on Render. Root Directory = empty; Dockerfile Path = Dockerfile"
+Write-Host ""
+Write-Host "Render: Root Directory = empty or . ; Dockerfile Path = VoiceChat.Api/Dockerfile ; Context = VoiceChat.Api"
+Write-Host "Or use Blueprint from render.yaml at repo root."

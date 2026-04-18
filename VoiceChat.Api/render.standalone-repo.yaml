@@ -1,8 +1,12 @@
-# Use this file ONLY when Render is connected to a standalone Git repo whose root is this
-# project folder (e.g. https://github.com/0504kalyan/VoiceChatApi with VoiceChat.Api.csproj at repo root).
+# VoiceChatApi GitHub repo layout:
+#   VoiceChat.sln
+#   VoiceChat.Api/
+#     Dockerfile
+#     VoiceChat.Api.csproj
+#     ...
 #
-# Copy this file to the root of that repo as render.yaml (or set Blueprint path to this filename).
-# dockerfilePath / dockerContext are relative to that repository root.
+# Copy this file to the REPOSITORY ROOT as render.yaml (paths below are relative to repo root).
+# https://render.com/docs/blueprint-spec
 
 services:
   - type: web
@@ -10,6 +14,6 @@ services:
     runtime: docker
     region: oregon
     plan: free
-    dockerfilePath: Dockerfile
-    dockerContext: .
+    dockerfilePath: VoiceChat.Api/Dockerfile
+    dockerContext: VoiceChat.Api
     healthCheckPath: /api/health

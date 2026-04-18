@@ -1,45 +1,28 @@
-Standalone GitHub repo (e.g. 0504kalyan/VoiceChatApi) — Render Docker
-======================================================================
+Standalone GitHub repo (0504kalyan/VoiceChatApi) — layout with solution at root
+================================================================================
 
-All Docker / Render files for this API live in THIS folder (Api/VoiceChat.Api).
+Repo layout:
+  VoiceChat.sln
+  VoiceChat.Api/
+    Dockerfile          ← Docker build context is THIS folder
+    VoiceChat.Api.csproj
+    ...
 
-Monorepo (ChatbotAI) deploy
----------------------------
-Use render.yaml in this folder. In Render, set Blueprint path to:
-  Api/VoiceChat.Api/render.yaml
+Monorepo (ChatbotAI)
+--------------------
+Use Api/VoiceChat.Api/render.yaml (paths from monorepo root).
 
-Separate VoiceChatApi repo (repo root = this project only)
------------------------------------------------------------
-1. Copy from THIS folder into your VoiceChatApi clone root (next to VoiceChat.Api.csproj):
-     - Dockerfile
-     - .dockerignore
-     - render.standalone-repo.yaml  →  rename to render.yaml on the other repo, OR set Blueprint path to render.standalone-repo.yaml
+VoiceChatApi GitHub repo
+------------------------
+1. From ChatbotAI run:
+     powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
 
-2. Commit and push:
-     git add Dockerfile .dockerignore render.yaml
-     git commit -m "Add Docker and Render blueprint for API"
+2. Commit from repo root:
+     git add VoiceChat.Api/Dockerfile VoiceChat.Api/.dockerignore render.yaml
      git push origin main
 
-3. Render: Root Directory = empty or "." ; Dockerfile Path = Dockerfile ; redeploy.
+3. Render (either):
+   - Blueprint: render.yaml at repo root (dockerfilePath: VoiceChat.Api/Dockerfile, dockerContext: VoiceChat.Api), OR
+   - Manual: Root Directory = empty ; Dockerfile Path = VoiceChat.Api/Dockerfile ; Docker Context = VoiceChat.Api
 
-If you see "failed to read dockerfile" / "transferring dockerfile: 2B"
----------------------------------------------
-The GitHub repo Render uses does NOT contain a real Dockerfile at the build root yet, OR Render
-is looking in the wrong folder.
-
-Checklist:
-1. Open in browser: https://github.com/0504kalyan/VoiceChatApi/blob/main/Dockerfile
-   If 404, the file was never pushed — fix below.
-
-2. On this machine, from ChatbotAI, run (adjust path to YOUR clone):
-     powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
-   Then commit + push in the VoiceChatApi clone.
-
-3. Render dashboard → your Web Service → Settings:
-     Root Directory     = (empty) or "."
-     Dockerfile Path    = Dockerfile
-     Docker build context = same as root (usually ".")
-
-4. Ensure .gitignore does NOT list "Dockerfile" or "*Dockerfile".
-
-5. Linux build is case-sensitive: the file must be named exactly  Dockerfile  (capital D).
+Verify: https://github.com/0504kalyan/VoiceChatApi/blob/main/VoiceChat.Api/Dockerfile
