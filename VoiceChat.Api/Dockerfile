@@ -1,5 +1,4 @@
-# Build context = this directory (Api/VoiceChat.Api). See render.yaml in this folder (dockerContext: Api/VoiceChat.Api).
-# Standalone repo: copy this file + .dockerignore next to VoiceChat.Api.csproj (see deploy/voicechat-api-standalone-render/).
+# Build context = this directory (Api/VoiceChat.Api). See render.yaml (monorepo) and DEPLOY-STANDALONE-REPO.txt (GitHub VoiceChatApi repo).
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src

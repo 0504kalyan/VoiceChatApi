@@ -19,6 +19,8 @@
 #
 # Local check from repo root:
 #   powershell -File Api\VoiceChat.Api\scripts\verify-render-docker.ps1
+#
+# Separate GitHub repo (VoiceChat.Api only at repo root): see DEPLOY-STANDALONE-REPO.txt and render.standalone-repo.yaml in this folder.
 
 services:
   - type: web

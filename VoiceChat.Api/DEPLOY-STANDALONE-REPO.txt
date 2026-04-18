@@ -1,0 +1,25 @@
+Standalone GitHub repo (e.g. 0504kalyan/VoiceChatApi) — Render Docker
+======================================================================
+
+All Docker / Render files for this API live in THIS folder (Api/VoiceChat.Api).
+
+Monorepo (ChatbotAI) deploy
+---------------------------
+Use render.yaml in this folder. In Render, set Blueprint path to:
+  Api/VoiceChat.Api/render.yaml
+
+Separate VoiceChatApi repo (repo root = this project only)
+-----------------------------------------------------------
+1. Copy from THIS folder into your VoiceChatApi clone root (next to VoiceChat.Api.csproj):
+     - Dockerfile
+     - .dockerignore
+     - render.standalone-repo.yaml  →  rename to render.yaml on the other repo, OR set Blueprint path to render.standalone-repo.yaml
+
+2. Commit and push:
+     git add Dockerfile .dockerignore render.yaml
+     git commit -m "Add Docker and Render blueprint for API"
+     git push origin main
+
+3. Render: Root Directory = empty or "." ; Dockerfile Path = Dockerfile ; redeploy.
+
+If you see "failed to read dockerfile", the Dockerfile is missing at the repo root you connected.
