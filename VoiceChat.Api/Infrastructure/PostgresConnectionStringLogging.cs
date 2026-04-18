@@ -8,6 +8,40 @@ namespace VoiceChat.Api.Infrastructure;
 /// </summary>
 public static class PostgresConnectionStringLogging
 {
+    /// <summary>
+    /// Fails fast if Render/env still has a SQL Server string or anything Npgsql cannot parse.
+    /// </summary>
+    public static void ThrowIfNotNpgsqlConnectionString(string connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return;
+
+        if (LooksLikeSqlServerConnectionString(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Connection string looks like SQL Server (e.g. Trusted_Connection or Initial Catalog). This API uses PostgreSQL/Npgsql only. " +
+                "On Render, replace ConnectionStrings__DefaultConnection with your Supabase Postgres string, for example: " +
+                "Host=db.xxxxx.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_PASSWORD;SSL Mode=Require;Trust Server Certificate=true");
+        }
+
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Connection string is not valid for Npgsql/PostgreSQL. Use Host=, Port=, Database=, Username=, Password=, SSL Mode=. " +
+                "Remove SQL Server keywords. Supabase: Dashboard → Connect or Database → Connection string.", ex);
+        }
+
+        static bool LooksLikeSqlServerConnectionString(string s) =>
+            s.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("Integrated Security", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("MultipleActiveResultSets", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("Initial Catalog", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string FormatForConsole(string? connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -22,7 +56,7 @@ public static class PostgresConnectionStringLogging
         }
         catch
         {
-            return "PostgreSQL: (connection string could not be parsed)";
+            return "PostgreSQL: (connection string could not be parsed — check for SQL Server keywords like Trusted_Connection)";
         }
     }
 

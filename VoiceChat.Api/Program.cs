@@ -47,6 +47,7 @@ if (string.IsNullOrWhiteSpace(conn))
         "Local Development: see appsettings.Development.json or .env (see .env.example).");
 }
 
+PostgresConnectionStringLogging.ThrowIfNotNpgsqlConnectionString(conn);
 PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);
 
 Console.WriteLine(
