@@ -15,3 +15,9 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      # Set the value only in the Render Dashboard (Environment) — never commit secrets.
+      # ASP.NET Core maps this to ConnectionStrings:DefaultConnection.
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Jwt__SigningKey
+        sync: false
