@@ -10,6 +10,9 @@ COPY VoiceChat.Api/ .
 RUN dotnet publish "VoiceChat.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+# Render runs Linux — never load appsettings.Development.json (local SQL Server / Trusted_Connection).
+# Without this, ASPNETCORE_ENVIRONMENT can default in ways that merge Development settings and ignore cloud SQL.
+ENV ASPNETCORE_ENVIRONMENT=Production
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 10000

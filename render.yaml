@@ -1,7 +1,9 @@
-# Required env vars on Render (Dashboard → Environment):
-# - ConnectionStrings__DefaultConnection = Azure SQL / RDS connection string (Sql auth; Encrypt=True per provider)
+# Render runs Linux containers — not Windows. Do NOT use Server=. or Trusted_Connection/Integrated Security.
+# Use Azure SQL (or RDS) with SQL authentication: User Id=...; Password=...; Encrypt=True (see Azure portal connection string).
+#
+# Required env vars (Dashboard → Environment):
+# - ConnectionStrings__DefaultConnection = cloud SQL Server connection string (see above)
 # - Jwt__SigningKey = random string, 32+ characters
-# Optional: GoogleCredentials__*, Email__*, Ollama__BaseUrl (if not localhost)
 
 services:
   - type: web

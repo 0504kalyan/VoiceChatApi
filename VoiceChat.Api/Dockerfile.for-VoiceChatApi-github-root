@@ -11,6 +11,7 @@ COPY VoiceChat.Api/ .
 RUN dotnet publish "VoiceChat.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+ENV ASPNETCORE_ENVIRONMENT=Production
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 10000

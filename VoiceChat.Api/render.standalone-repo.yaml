@@ -1,9 +1,8 @@
 # VoiceChatApi GitHub repo — copy to REPOSITORY ROOT as render.yaml
 # Layout: VoiceChat.sln, VoiceChat.Api/ (Dockerfile must be at repo root; use Dockerfile.for-VoiceChatApi-github-root).
 #
-# Required env vars on Render (Dashboard → Environment):
-# - ConnectionStrings__DefaultConnection = Azure SQL / RDS connection string (Sql auth; Encrypt=True per provider)
-# - Jwt__SigningKey = random string, 32+ characters
+# Render = Linux. Use SQL auth to Azure SQL / RDS (not Trusted_Connection / Server=.).
+# Required: ConnectionStrings__DefaultConnection, Jwt__SigningKey (32+ chars).
 
 services:
   - type: web

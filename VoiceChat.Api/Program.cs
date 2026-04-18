@@ -46,7 +46,11 @@ if (string.IsNullOrWhiteSpace(conn))
         "Render: set ConnectionStrings__DefaultConnection to your cloud SQL Server string (Sql authentication, Encrypt=True as required).");
 }
 
-Console.WriteLine("[VoiceChat.Api] " + SqlServerConnectionStringLogging.FormatForConsole(conn));
+SqlServerConnectionStringLogging.ThrowIfProductionUsesIncompatibleSql(builder.Environment, conn);
+
+Console.WriteLine(
+    $"[VoiceChat.Api] Environment={builder.Environment.EnvironmentName}; " +
+    SqlServerConnectionStringLogging.FormatForConsole(conn));
 
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(conn));
 
