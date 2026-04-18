@@ -1,10 +1,13 @@
-# Build context = this directory (Api/VoiceChat.Api). See render.yaml (monorepo) and DEPLOY-STANDALONE-REPO.txt (GitHub VoiceChatApi repo).
+# For repo https://github.com/0504kalyan/VoiceChatApi — place this file at the REPOSITORY ROOT
+# as "Dockerfile" (next to VoiceChat.sln). Build context = repo root (.).
+# Sync: sync-to-VoiceChatApi-clone.ps1 copies this to <clone>/Dockerfile
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY ["VoiceChat.Api.csproj", "./"]
+COPY ["VoiceChat.Api/VoiceChat.Api.csproj", "VoiceChat.Api/"]
+WORKDIR /src/VoiceChat.Api
 RUN dotnet restore "VoiceChat.Api.csproj"
-COPY . .
+COPY VoiceChat.Api/ .
 RUN dotnet publish "VoiceChat.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

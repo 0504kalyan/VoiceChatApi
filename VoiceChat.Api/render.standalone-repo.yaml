@@ -1,12 +1,5 @@
-# VoiceChatApi GitHub repo layout:
-#   VoiceChat.sln
-#   VoiceChat.Api/
-#     Dockerfile
-#     VoiceChat.Api.csproj
-#     ...
-#
-# Copy this file to the REPOSITORY ROOT as render.yaml (paths below are relative to repo root).
-# https://render.com/docs/blueprint-spec
+# VoiceChatApi GitHub repo — copy to REPOSITORY ROOT as render.yaml
+# Layout: VoiceChat.sln, VoiceChat.Api/ (Dockerfile must be at repo root; use Dockerfile.for-VoiceChatApi-github-root).
 
 services:
   - type: web
@@ -14,6 +7,6 @@ services:
     runtime: docker
     region: oregon
     plan: free
-    dockerfilePath: VoiceChat.Api/Dockerfile
-    dockerContext: VoiceChat.Api
+    dockerfilePath: Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health

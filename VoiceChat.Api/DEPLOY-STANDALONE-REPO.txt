@@ -1,28 +1,31 @@
-Standalone GitHub repo (0504kalyan/VoiceChatApi) — layout with solution at root
-================================================================================
+VoiceChatApi GitHub repo (0504kalyan/VoiceChatApi)
+==================================================
 
-Repo layout:
+Layout:
   VoiceChat.sln
+  Dockerfile              ← at REPO ROOT (Render default)
+  render.yaml             ← optional Blueprint at repo root
   VoiceChat.Api/
-    Dockerfile          ← Docker build context is THIS folder
     VoiceChat.Api.csproj
-    ...
+    ... source ...
 
 Monorepo (ChatbotAI)
 --------------------
-Use Api/VoiceChat.Api/render.yaml (paths from monorepo root).
+Docker + Blueprint live at repository root:
+  Dockerfile
+  .dockerignore
+  render.yaml
 
-VoiceChatApi GitHub repo
-------------------------
-1. From ChatbotAI run:
-     powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
+Paths inside Dockerfile: Api/VoiceChat.Api/
 
-2. Commit from repo root:
-     git add VoiceChat.Api/Dockerfile VoiceChat.Api/.dockerignore render.yaml
-     git push origin main
+Blueprint path in Render: render.yaml (default) or leave empty for auto-detect.
 
-3. Render (either):
-   - Blueprint: render.yaml at repo root (dockerfilePath: VoiceChat.Api/Dockerfile, dockerContext: VoiceChat.Api), OR
-   - Manual: Root Directory = empty ; Dockerfile Path = VoiceChat.Api/Dockerfile ; Docker Context = VoiceChat.Api
+VoiceChatApi clone
+-------------------
+  powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
 
-Verify: https://github.com/0504kalyan/VoiceChatApi/blob/main/VoiceChat.Api/Dockerfile
+Then:
+  git add Dockerfile render.yaml .dockerignore
+  git push
+
+Render: Root Directory = . ; Dockerfile Path = Dockerfile ; Docker Context = .

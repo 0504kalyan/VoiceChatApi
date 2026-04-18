@@ -1,6 +1,5 @@
-# Copies Docker + Render files for the VoiceChatApi repo layout:
-#   repo root: VoiceChat.sln
-#   VoiceChat.Api/Dockerfile, VoiceChat.Api.csproj, ...
+# Copies repo-root Dockerfile + render.yaml for https://github.com/0504kalyan/VoiceChatApi
+# (VoiceChat.sln at root, project under VoiceChat.Api/). Dockerfile belongs at REPO ROOT.
 #
 # Usage:
 #   powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
@@ -12,25 +11,31 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
+$apiProjectDir = Resolve-Path (Join-Path $here '..')
+$monorepoRoot = Resolve-Path (Join-Path $here '..\..\..')
 $target = Resolve-Path -LiteralPath $VoiceChatApiRepoRoot
 $projDir = Join-Path $target 'VoiceChat.Api'
 $csproj = Join-Path $projDir 'VoiceChat.Api.csproj'
 
 if (-not (Test-Path -LiteralPath $csproj)) {
-    Write-Error "Expected project at: $csproj — pass the clone root of https://github.com/0504kalyan/VoiceChatApi (folder containing VoiceChat.Api\)."
+    Write-Error "Expected: $csproj — pass the VoiceChatApi clone root (contains VoiceChat.Api\)."
 }
 
-Copy-Item -LiteralPath (Join-Path $here 'Dockerfile') -Destination (Join-Path $projDir 'Dockerfile') -Force
-Copy-Item -LiteralPath (Join-Path $here '.dockerignore') -Destination (Join-Path $projDir '.dockerignore') -Force
-Copy-Item -LiteralPath (Join-Path $here 'render.standalone-repo.yaml') -Destination (Join-Path $target 'render.yaml') -Force
+Copy-Item -LiteralPath (Join-Path $apiProjectDir 'Dockerfile.for-VoiceChatApi-github-root') -Destination (Join-Path $target 'Dockerfile') -Force
+Copy-Item -LiteralPath (Join-Path $apiProjectDir 'render.standalone-repo.yaml') -Destination (Join-Path $target 'render.yaml') -Force
 
-Write-Host "Copied Dockerfile, .dockerignore -> $projDir"
-Write-Host "Copied render.yaml -> $target"
+$ignoreSrc = Join-Path $monorepoRoot '.dockerignore'
+if (Test-Path -LiteralPath $ignoreSrc) {
+    Copy-Item -LiteralPath $ignoreSrc -Destination (Join-Path $target '.dockerignore') -Force
+    Write-Host "Copied .dockerignore -> $target"
+}
+
+Write-Host "Copied Dockerfile -> $target\Dockerfile"
+Write-Host "Copied render.yaml -> $target\render.yaml"
 Write-Host ""
 Write-Host "Next (repo root):"
-Write-Host "  git add VoiceChat.Api/Dockerfile VoiceChat.Api/.dockerignore render.yaml"
-Write-Host "  git commit -m ""Add Docker + Render paths for VoiceChat.Api subfolder"""
+Write-Host "  git add Dockerfile render.yaml .dockerignore"
+Write-Host "  git commit -m ""Dockerfile at repo root for Render"""
 Write-Host "  git push origin main"
 Write-Host ""
-Write-Host "Render: Root Directory = empty or . ; Dockerfile Path = VoiceChat.Api/Dockerfile ; Context = VoiceChat.Api"
-Write-Host "Or use Blueprint from render.yaml at repo root."
+Write-Host "Render: Root Directory = . ; Dockerfile Path = Dockerfile ; Context = ."
