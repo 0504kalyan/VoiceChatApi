@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -9,11 +10,17 @@ using Microsoft.OpenApi;
 using VoiceChat.Api.Data;
 using VoiceChat.Api.Models.Entities;
 using VoiceChat.Api.Hubs;
+using VoiceChat.Api.Infrastructure;
 using VoiceChat.Api.Interfaces;
 using VoiceChat.Api.Options;
 using VoiceChat.Api.Services;
 
+// Local ".env" is git-ignored — use GoogleCredentials__* (see .env.example). Never commit real secrets.
+LocalDotEnvLoader.TryLoad();
+
 var builder = WebApplication.CreateBuilder(args);
+
+ConfigurationPlaceholderExpander.Apply(builder.Configuration);
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
@@ -138,7 +145,7 @@ if (googleOpts.IsConfigured)
 builder.Services.AddAuthorization();
 
 var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
-                  ?? ["http://localhost:4200", "https://localhost:4200", "http://localhost:62336"];
+                  ?? ["http://localhost:4200", "https://localhost:4200"];
 builder.Services.AddCors(o =>
 {
     o.AddDefaultPolicy(p =>
@@ -164,6 +171,15 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    var googleAuthForLog = app.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
+    if (!googleAuthForLog.IsConfigured)
+    {
+        var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
+        log.LogInformation(
+            "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
+            "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
+    }
+
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {

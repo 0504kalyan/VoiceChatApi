@@ -77,6 +77,13 @@ Database: **SQL Server** via `ConnectionStrings:DefaultConnection` in `appsettin
 
 With `dotnet run` or Visual Studio **F5**, the browser opens **Swagger UI** at `/swagger` (Development only). You can also open `http://localhost:5292/swagger` manually.
 
+### Google sign-in (optional)
+
+1. Copy **`VoiceChat.Api/.env.example`** to **`.env`** in the same folder (`.env` is git-ignored).
+2. Set **`GoogleCredentials__ClientId`** and **`GoogleCredentials__ClientSecret`** from [Google Cloud Console](https://console.cloud.google.com/) (OAuth 2.0 Client IDs, Web application).
+3. Add **Authorized redirect URI**: `http://localhost:5292/signin-google`.
+4. Restart the API. In Development, `appsettings.json` uses placeholders `{{GoogleCredentials:ClientId}}` / `{{GoogleCredentials:ClientSecret}}` — real values come from `.env` or environment variables only; do not commit secrets.
+
 ## Run the web app
 
 ```bash

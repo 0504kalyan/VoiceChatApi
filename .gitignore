@@ -7,3 +7,7 @@
 *.db-shm
 *.db-wal
 .vs/
+
+# Local secrets — never commit (GitHub push protection)
+**/.env
+**/appsettings.Local.json
