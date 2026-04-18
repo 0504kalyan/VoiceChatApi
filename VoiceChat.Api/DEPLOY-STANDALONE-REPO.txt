@@ -1,6 +1,12 @@
 VoiceChatApi GitHub repo (0504kalyan/VoiceChatApi)
 ==================================================
 
+Quick copy bundle (same files, drag into your VoiceChatApi repo root):
+  VoiceChatApi-GitHub-bundle/
+
+Before every Render deploy, this URL must show the file (not 404):
+  https://github.com/0504kalyan/VoiceChatApi/blob/main/Dockerfile
+
 Layout:
   VoiceChat.sln
   Dockerfile              ← at REPO ROOT (Render default)
