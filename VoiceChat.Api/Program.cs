@@ -192,24 +192,22 @@ var app = builder.Build();
     }
 }
 
-if (app.Environment.IsDevelopment())
-{
-    var googleAuthForLog = app.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
-    if (!googleAuthForLog.IsConfigured)
-    {
-        var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
-        log.LogInformation(
-            "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
-            "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
-    }
 
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
-        options.RoutePrefix = "swagger";
-    });
+var googleAuthForLog = app.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
+if (!googleAuthForLog.IsConfigured)
+{
+    var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
+    log.LogInformation(
+        "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
+        "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
 }
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
+    options.RoutePrefix = "swagger";
+});
 
 app.UseCors();
 
