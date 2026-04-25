@@ -167,12 +167,12 @@ if (googleOpts.IsConfigured)
 
 builder.Services.AddAuthorization();
 
-var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
-                  ?? ["http://localhost:4200", "https://localhost:4200"];
+var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
+var webClientPublicOrigin = builder.Configuration[$"{WebClientOptions.SectionName}:{nameof(WebClientOptions.PublicOrigin)}"];
 builder.Services.AddCors(o =>
 {
     o.AddDefaultPolicy(p =>
-        p.WithOrigins(corsOrigins)
+        p.SetIsOriginAllowed(origin => WebOriginResolver.IsAllowedCorsOrigin(origin, corsOrigins, webClientPublicOrigin))
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials());
@@ -193,22 +193,27 @@ var app = builder.Build();
 }
 
 
-var googleAuthForLog = app.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
-if (!googleAuthForLog.IsConfigured)
+if (app.Environment.IsDevelopment())
 {
-    var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
-    log.LogInformation(
-        "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
-        "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
+    var googleAuthForLog = app.Services.GetRequiredService<IOptions<GoogleAuthOptions>>().Value;
+    if (!googleAuthForLog.IsConfigured)
+    {
+        var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
+        log.LogInformation(
+            "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
+            "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
+    }
+
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
+        options.RoutePrefix = "swagger";
+    });
 }
 
-app.UseSwagger();
-app.UseSwaggerUI(options =>
-{
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
-    options.RoutePrefix = "swagger";
-});
-
+// CORS must run between UseRouting and endpoint mapping so preflight + credentialed requests get headers.
+app.UseRouting();
 app.UseCors();
 
 // Only enable HTTPS redirection when this process actually exposes HTTPS (see launchSettings applicationUrl).

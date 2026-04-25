@@ -15,12 +15,10 @@ public class PasswordResetService(
     IMailSender mail,
     IOptions<JwtOptions> jwtOptions,
     IOptions<PasswordResetOptions> resetOptions,
-    IOptions<WebClientOptions> webOptions,
     ILogger<PasswordResetService> log)
 {
     private readonly JwtOptions _jwt = jwtOptions.Value;
     private readonly PasswordResetOptions _reset = resetOptions.Value;
-    private readonly WebClientOptions _web = webOptions.Value;
 
     private string Pepper => _jwt.SigningKey;
 
@@ -34,7 +32,10 @@ public class PasswordResetService(
     /// Sends a reset email only for confirmed users who have a password (not Google-only).
     /// Always succeeds from a caller perspective (no user enumeration).
     /// </summary>
-    public async Task RequestResetAsync(string normalizedEmail, CancellationToken cancellationToken = default)
+    public async Task RequestResetAsync(
+        string normalizedEmail,
+        string publicOrigin,
+        CancellationToken cancellationToken = default)
     {
         var user = await db.Users.FirstOrDefaultAsync(
             u => u.NormalizedEmail == normalizedEmail && u.EmailConfirmed,
@@ -73,7 +74,7 @@ public class PasswordResetService(
         db.PasswordResetTokens.Add(row);
         await db.SaveChangesAsync(cancellationToken);
 
-        var baseUrl = _web.PublicOrigin.TrimEnd('/');
+        var baseUrl = publicOrigin.TrimEnd('/');
         var link =
             $"{baseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}&email={Uri.EscapeDataString(normalizedEmail)}";
 

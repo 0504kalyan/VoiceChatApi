@@ -1,9 +1,11 @@
 namespace VoiceChat.Api.Options;
 
-/// <summary>Browser SPA origin used after Google OAuth (OTP verification page).</summary>
+/// <summary>
+/// Optional browser SPA origin fallback used for redirects when the current request does not provide Origin/Referer.
+/// </summary>
 public class WebClientOptions
 {
     public const string SectionName = "WebClient";
 
-    public string PublicOrigin { get; set; } = "http://localhost:4200";
+    public string PublicOrigin { get; set; } = string.Empty;
 }

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VoiceChat.Api.Data;
+using VoiceChat.Api.Infrastructure;
 using VoiceChat.Api.Models.Dtos;
 using VoiceChat.Api.Models.Entities;
 using VoiceChat.Api.Options;
@@ -26,6 +27,8 @@ public class AuthController(
 {
     private readonly WebClientOptions _web = webOptions.Value;
     private readonly GoogleAuthOptions _google = googleOptions.Value;
+
+    private string ResolvePublicOrigin() => WebOriginResolver.ResolvePublicOrigin(Request, _web.PublicOrigin);
 
     [HttpGet("ping")]
     public IActionResult Ping() => Ok(new { ok = true, message = "Auth API is running." });
@@ -120,7 +123,7 @@ public class AuthController(
         var norm = GmailAddress.Normalize(body.Email);
         try
         {
-            await passwordReset.RequestResetAsync(norm, cancellationToken);
+            await passwordReset.RequestResetAsync(norm, ResolvePublicOrigin(), cancellationToken);
         }
         catch (Exception ex)
         {
@@ -200,21 +203,23 @@ public class AuthController(
     [HttpGet("google")]
     public IActionResult GoogleStart()
     {
+        var publicOrigin = ResolvePublicOrigin();
         if (!_google.IsConfigured)
         {
-            var login = $"{_web.PublicOrigin.TrimEnd('/')}/login?error=google_not_configured";
+            var login = $"{publicOrigin}/login?error=google_not_configured";
             return Redirect(login);
         }
 
-        var redirect = Url.Action(nameof(GoogleCallback), "Auth", null, Request.Scheme)
+        var redirect = Url.Action(nameof(GoogleCallback), "Auth", new { clientOrigin = publicOrigin }, Request.Scheme)
                        ?? throw new InvalidOperationException("Could not build callback URL.");
         return Challenge(new AuthenticationProperties { RedirectUri = redirect }, "Google");
     }
 
     [HttpGet("google-callback")]
     [Authorize(AuthenticationSchemes = "External")]
-    public async Task<IActionResult> GoogleCallback(CancellationToken cancellationToken)
+    public async Task<IActionResult> GoogleCallback([FromQuery] string? clientOrigin, CancellationToken cancellationToken)
     {
+        var publicOrigin = WebOriginResolver.ResolvePublicOrigin(Request, clientOrigin ?? _web.PublicOrigin);
         var email = User.FindFirstValue(ClaimTypes.Email);
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var name = User.FindFirstValue(ClaimTypes.Name);
@@ -222,13 +227,13 @@ public class AuthController(
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(sub))
         {
             log.LogWarning("Google callback missing email or sub.");
-            return Redirect($"{_web.PublicOrigin.TrimEnd('/')}/login?error=google_claims");
+            return Redirect($"{publicOrigin}/login?error=google_claims");
         }
 
         if (!GmailAddress.IsAllowedGmail(email))
         {
             await HttpContext.SignOutAsync("External");
-            return Redirect($"{_web.PublicOrigin.TrimEnd('/')}/login?error=gmail_only");
+            return Redirect($"{publicOrigin}/login?error=gmail_only");
         }
 
         var norm = GmailAddress.Normalize(email);
@@ -269,7 +274,7 @@ public class AuthController(
         await HttpContext.SignOutAsync("External");
 
         var next =
-            $"{_web.PublicOrigin.TrimEnd('/')}/auth/google-callback?token={Uri.EscapeDataString(token)}";
+            $"{publicOrigin}/auth/google-callback?token={Uri.EscapeDataString(token)}";
         return Redirect(next);
     }
 }
