@@ -1,0 +1,13 @@
+# Local API container (build context = Api folder).
+#   docker compose -f Api/docker-compose.yml up --build
+# Optional: uncomment env_file and create VoiceChat.Api/.env with the same keys you use in hosting (SupabaseCredentials__ConnectionString, etc.).
+services:
+  voicechat-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5292:10000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      PORT: "10000"

@@ -20,6 +20,9 @@ using VoiceChat.Api.Services;
 LocalDotEnvLoader.TryLoad();
 
 var builder = WebApplication.CreateBuilder(args);
+// Process environment (injected by Docker / hosting dashboards) overrides appsettings.json for the same keys.
+builder.Configuration.AddEnvironmentVariables();
+LocalDotEnvLoader.MergeIntoConfiguration(builder.Configuration);
 
 ConfigurationPlaceholderExpander.Apply(builder.Configuration);
 
@@ -38,7 +41,30 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-var conn = PostgresConnectionStringResolver.Resolve(builder.Configuration);
+// Process env SupabaseCredentials__ConnectionString maps to configuration SupabaseCredentials:ConnectionString (.NET convention).
+string? T(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+var conn = T(builder.Configuration["SupabaseCredentials:ConnectionString"])
+    ?? T(builder.Configuration.GetConnectionString("DefaultConnection"))
+    ?? T(Environment.GetEnvironmentVariable("SupabaseCredentials__ConnectionString"))
+    ?? T(Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection"));
+if (!string.IsNullOrWhiteSpace(conn) && conn.Length >= 2 &&
+    ((conn[0] == '"' && conn[^1] == '"') || (conn[0] == '\'' && conn[^1] == '\'')))
+    conn = conn[1..^1].Trim();
+
+if (string.IsNullOrWhiteSpace(conn))
+{
+    throw new InvalidOperationException(
+        "PostgreSQL connection string missing. Set environment variable SupabaseCredentials__ConnectionString or ConnectionStrings__DefaultConnection, " +
+        "or add Api/VoiceChat.Api/.env with SupabaseCredentials__ConnectionString=..., or run: dotnet user-secrets set \"SupabaseCredentials:ConnectionString\" \"...\" --project VoiceChat.Api.csproj");
+}
+
+if (conn.StartsWith("{{", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException(
+        "SupabaseCredentials:ConnectionString is still a literal {{...}} placeholder. Use an empty value in appsettings and set SupabaseCredentials__ConnectionString to your Npgsql string (Host=...;Username=...;Password=...;Database=...;SSL Mode=Require;Trust Server Certificate=true).");
+}
+
+PostgresConnectionStringLogging.ThrowIfNotNpgsqlConnectionString(conn);
 NpgsqlSupabaseConnection.ThrowIfPoolerNeedsTenantUsername(conn);
 conn = NpgsqlSupabaseConnection.PrepareConnectionString(conn);
 PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);

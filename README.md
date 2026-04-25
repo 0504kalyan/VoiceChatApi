@@ -8,7 +8,7 @@ Projects are **siblings at the repository root** (not under `src/`):
 
 | Folder | Description |
 |--------|--------------|
-| **`VoiceChat.Api/`** | ASP.NET Core, EF Core SQL Server, SignalR `ChatHub`, `ILlmClient` → local **Ollama** (`/api/chat`). Docker/Render: root [`Dockerfile`](../Dockerfile) + [`render.yaml`](../render.yaml) build this folder. Standalone repo: [`DEPLOY-STANDALONE-REPO.txt`](VoiceChat.Api/DEPLOY-STANDALONE-REPO.txt). |
+| **`VoiceChat.Api/`** | ASP.NET Core, EF Core, SignalR `ChatHub`, `ILlmClient` → local **Ollama** (`/api/chat`). **Docker:** repo-root [`Dockerfile`](../Dockerfile) (context `.`) or [`Api/Dockerfile`](Dockerfile) (context `Api`). Local compose: [`Api/docker-compose.yml`](docker-compose.yml). |
 | **`VoiceChat.Web/`** | Angular UI, `@microsoft/signalr`, voice input via the browser |
 | **`docs/`** | Architecture notes (`VoiceChat.Api.md`, `VoiceChat.Web.md`) |
 | **`VoiceChat.sln`** | **Visual Studio solution** (classic `.sln`) — open this file to load the API project |

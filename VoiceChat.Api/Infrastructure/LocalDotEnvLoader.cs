@@ -1,11 +1,9 @@
+using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 
 namespace VoiceChat.Api.Infrastructure;
 
-/// <summary>
-/// Resolves <c>{{Section:Key}}</c> (e.g. <c>{{GoogleCredentials:ClientId}}</c>) from other config keys so the same
-/// env vars work locally (<c>.env</c>) and on Render (<c>GoogleCredentials__ClientId</c>, etc.).
-/// </summary>
+/// <summary>Resolves <c>{{Section:Key}}</c> (e.g. Google placeholders from other config keys).</summary>
 public static class ConfigurationPlaceholderExpander
 {
     private const int MaxResolveDepth = 16;
@@ -40,42 +38,6 @@ public static class ConfigurationPlaceholderExpander
 
             configuration.AddInMemoryCollection(batch);
         }
-
-        // Older appsettings used SupabaseCredentials:DefaultConnection while ConnectionStrings:DefaultConnection
-        // referenced {{SupabaseCredentials:ConnectionString}} — if that key was empty, Npgsql saw the literal "{{...}}"
-        // and threw "starting at index 0". Copy from either Supabase key when DefaultConnection is missing or unreplaced.
-        WarmDefaultConnectionFromSupabase(configuration);
-    }
-
-    private static void WarmDefaultConnectionFromSupabase(ConfigurationManager configuration)
-    {
-        var current = PostgresConnectionStringResolver.Normalize(configuration["ConnectionStrings:DefaultConnection"]);
-        if (!string.IsNullOrWhiteSpace(current) && !PostgresConnectionStringResolver.IsUnresolvedPlaceholder(current))
-            return;
-
-        var resolved = PickFirstNonEmpty(
-            PostgresConnectionStringResolver.Normalize(configuration["SupabaseCredentials:ConnectionString"]),
-            PostgresConnectionStringResolver.Normalize(configuration["SupabaseCredentials:DefaultConnection"]));
-
-        if (string.IsNullOrWhiteSpace(resolved))
-            return;
-
-        configuration.AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["ConnectionStrings:DefaultConnection"] = resolved,
-            ["SupabaseCredentials:ConnectionString"] = resolved
-        });
-    }
-
-    private static string? PickFirstNonEmpty(params string?[] values)
-    {
-        foreach (var v in values)
-        {
-            if (!string.IsNullOrWhiteSpace(v))
-                return v;
-        }
-
-        return null;
     }
 
     private static string? Resolve(IConfiguration configuration, string path, int depth)
@@ -97,15 +59,14 @@ public static class ConfigurationPlaceholderExpander
 
 /// <summary>
 /// Loads a <c>.env</c> file into the process environment before <see cref="WebApplication.CreateBuilder(string[])"/>.
-/// Use the same keys as Render (e.g. <c>GoogleCredentials__ClientId</c>) — never commit <c>.env</c>.
+/// Skips blank values so an empty <c>KEY=</c> line does not clear keys already set by the host.
+/// Runs when a candidate <c>.env</c> file exists (git-ignored). Use the same names as process environment variables (e.g. <c>GoogleCredentials__ClientId</c>).
 /// </summary>
 public static class LocalDotEnvLoader
 {
+    /// <summary>Loads the first <c>.env</c> found into <see cref="Environment"/> (same <c>KEY=value</c> names as hosting env vars).</summary>
     public static void TryLoad()
     {
-        if (!ShouldLoadForCurrentEnvironment())
-            return;
-
         foreach (var path in GetCandidateEnvFilePaths())
         {
             if (!File.Exists(path))
@@ -113,23 +74,12 @@ public static class LocalDotEnvLoader
 
             foreach (var raw in File.ReadLines(path))
             {
-                var line = raw.Trim();
-                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                if (!TryParseDotEnvLine(raw, out var key, out var value))
                     continue;
 
-                if (line.StartsWith("export ", StringComparison.OrdinalIgnoreCase))
-                    line = line[7..].TrimStart();
-
-                var eq = line.IndexOf('=');
-                if (eq <= 0)
+                // Never overwrite host-provided secrets with an empty placeholder from .env (e.g. copied .env.example).
+                if (string.IsNullOrWhiteSpace(value))
                     continue;
-
-                var key = line[..eq].Trim();
-                if (key.Length == 0)
-                    continue;
-
-                var value = line[(eq + 1)..].Trim();
-                value = StripOptionalQuotes(value);
 
                 Environment.SetEnvironmentVariable(key, value);
             }
@@ -138,15 +88,65 @@ public static class LocalDotEnvLoader
         }
     }
 
-    private static bool ShouldLoadForCurrentEnvironment()
+    /// <summary>
+    /// Pushes the first <c>.env</c> into <paramref name="configuration"/> so keys override <c>appsettings.json</c>
+    /// (env-style <c>KEY__Nested=value</c>; <c>__</c> becomes <c>:</c> in configuration keys).
+    /// </summary>
+    public static void MergeIntoConfiguration(ConfigurationManager configuration)
     {
-        var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-        return string.IsNullOrEmpty(env) || env.Equals("Development", StringComparison.OrdinalIgnoreCase);
+        foreach (var path in GetCandidateEnvFilePaths())
+        {
+            if (!File.Exists(path))
+                continue;
+
+            var batch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var raw in File.ReadLines(path))
+            {
+                if (!TryParseDotEnvLine(raw, out var key, out var value))
+                    continue;
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                batch[key.Replace("__", ":", StringComparison.Ordinal)] = value;
+            }
+
+            if (batch.Count > 0)
+                configuration.AddInMemoryCollection(batch);
+
+            break;
+        }
+    }
+
+    private static bool TryParseDotEnvLine(string raw, out string key, out string value)
+    {
+        key = string.Empty;
+        value = string.Empty;
+
+        var line = raw.Trim();
+        if (line.Length == 0 || line.StartsWith('#'))
+            return false;
+
+        if (line.StartsWith("export ", StringComparison.OrdinalIgnoreCase))
+            line = line[7..].TrimStart();
+
+        var eq = line.IndexOf('=');
+        if (eq <= 0)
+            return false;
+
+        key = line[..eq].Trim();
+        if (key.Length == 0)
+            return false;
+
+        value = StripOptionalQuotes(line[(eq + 1)..].Trim());
+        return true;
     }
 
     private static IEnumerable<string> GetCandidateEnvFilePaths()
     {
         yield return Path.Combine(Directory.GetCurrentDirectory(), ".env");
+        // When Visual Studio uses the repo root as working directory (e.g. d:\ChatbotAI).
+        yield return Path.Combine(Directory.GetCurrentDirectory(), "Api", "VoiceChat.Api", ".env");
+        yield return Path.Combine(AppContext.BaseDirectory, ".env");
 
         var asmPath = typeof(LocalDotEnvLoader).Assembly.Location;
         var dir = Path.GetDirectoryName(asmPath);

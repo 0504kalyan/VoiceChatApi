@@ -13,11 +13,11 @@ The committed `appsettings.json` includes your Supabase **host** with **`Passwor
 ## 2. Get the database connection string
 
 1. In the Supabase dashboard, open your project and click **Connect** (or **Project Settings** → **Database**).
-2. Prefer the **Session pooler** or **Transaction pooler** connection details when deploying to **Render**, **Railway**, **Fly.io**, or any host that is **IPv4-only**.
+2. Prefer the **Session pooler** or **Transaction pooler** connection details when deploying to **Railway**, **Fly.io**, or any host that is **IPv4-only**.
 
-### Render / IPv6 (“Network is unreachable”, IPv6 address in logs)
+### IPv6 (“Network is unreachable”, IPv6 address in logs)
 
-Supabase’s **direct** host `db.<project-ref>.supabase.co` often resolves to **IPv6**. Many clouds (including Render’s free tier) **cannot route IPv6** to the public internet, so Npgsql fails with `SocketException: Network is unreachable` to an IPv6 address.
+Supabase’s **direct** host `db.<project-ref>.supabase.co` often resolves to **IPv6**. Many cloud hosts **cannot route IPv6** to the public internet, so Npgsql fails with `SocketException: Network is unreachable` to an IPv6 address.
 
 **Permanent fix (pick one):**
 
@@ -41,7 +41,7 @@ Direct (may be IPv6-only):
 Host=db.YOUR_PROJECT_REF.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_DB_PASSWORD;SSL Mode=Require;Trust Server Certificate=true
 ```
 
-Session pooler (often IPv4-friendly for Render):
+Session pooler (often IPv4-friendly on cloud hosts):
 
 ```text
 Host=aws-0-YOUR_REGION.pooler.supabase.com;Port=5432;Database=postgres;Username=postgres.YOUR_PROJECT_REF;Password=YOUR_DB_PASSWORD;SSL Mode=Require;Trust Server Certificate=true
@@ -51,14 +51,14 @@ Host=aws-0-YOUR_REGION.pooler.supabase.com;Port=5432;Database=postgres;Username=
 
 ## 3. Declare the connection string for this API
 
-Configuration is merged from `appsettings*.json`, then **environment variables** (Render, Docker, etc.).
+Configuration is merged from `appsettings*.json`, then **environment variables** (Docker, hosting dashboards, etc.).
 
 ### Option A — `SupabaseCredentials` (matches `appsettings.json` placeholders)
 
 - **Environment variable name:** `SupabaseCredentials__ConnectionString`
 - **Value:** the full Npgsql connection string from step 2.
 
-This maps to the `SupabaseCredentials:ConnectionString` section. `ConnectionStrings:DefaultConnection` is filled via `{{SupabaseCredentials:ConnectionString}}` after placeholder expansion.
+This maps to the `SupabaseCredentials:ConnectionString` section. You can also set `ConnectionStrings__DefaultConnection` to the same Npgsql string.
 
 ### Option B — Standard ASP.NET Core connection string
 
@@ -74,12 +74,12 @@ This overrides `ConnectionStrings:DefaultConnection` directly.
 
 3. Run the API with `ASPNETCORE_ENVIRONMENT=Development` (default for `dotnet run` from the project).
 
-### Render (or any host)
+### Hosted deployment
 
-1. **Dashboard** → your **Web Service** → **Environment**.
+1. In your hosting provider, open the API service **environment** (or **variables**) settings.
 2. Add **`SupabaseCredentials__ConnectionString`** or **`ConnectionStrings__DefaultConnection`** (one is enough).
 3. Add **`Jwt__SigningKey`** (random string, at least 32 characters).
-4. Save and **Deploy**.
+4. Save and **redeploy** the API.
 
 Startup logs a **non-secret** line: `PostgreSQL: Host=...; Port=...; Database=...; SSL=...`.
 
@@ -98,8 +98,8 @@ Design-time defaults use `AppDbContextFactory` (local Postgres URL); adjust if n
 
 ## 5. Web UI (VoiceChat.Web)
 
-The Angular app does **not** connect to Supabase directly for this API’s data; it calls the **HTTP + SignalR** endpoints on VoiceChat.Api. Point the web app’s API base URL to your deployed API (e.g. Render URL). No Supabase client key is required in the browser for this database path unless you add Supabase features (Auth/Storage) separately.
+The Angular app does **not** connect to Supabase directly for this API’s data; it calls the **HTTP + SignalR** endpoints on VoiceChat.Api. Point the web app’s API base URL to your deployed API origin. No Supabase client key is required in the browser for this database path unless you add Supabase features (Auth/Storage) separately.
 
 ---
 
-**Summary:** Sign up → create project → copy DB host/user/password → form an **Npgsql** connection string → set **`SupabaseCredentials__ConnectionString`** or **`ConnectionStrings__DefaultConnection`** in `.env` (local) or Render (production) → deploy; migrations apply automatically on startup.
+**Summary:** Sign up → create project → copy DB host/user/password → form an **Npgsql** connection string → set **`SupabaseCredentials__ConnectionString`** or **`ConnectionStrings__DefaultConnection`** in `.env` (local) or in your host’s environment (production) → deploy; migrations apply automatically on startup.

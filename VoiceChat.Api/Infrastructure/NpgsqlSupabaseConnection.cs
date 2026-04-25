@@ -8,7 +8,7 @@ namespace VoiceChat.Api.Infrastructure;
 public static class NpgsqlSupabaseConnection
 {
     /// <summary>
-    /// Disables GSS/Kerberos so slim Linux images (e.g. Render) do not require libgssapi_krb5. Supabase uses SCRAM password auth.
+    /// Disables GSS/Kerberos so slim Linux container images do not require libgssapi_krb5. Supabase uses SCRAM password auth.
     /// </summary>
     public static string PrepareConnectionString(string connectionString)
     {

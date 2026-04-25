@@ -36,10 +36,10 @@ public static class DatabaseMigrator
         {
             throw new InvalidOperationException(
                 "Database connection failed: network unreachable to Supabase (often IPv6). " +
-                "Hosts like Render use IPv4; the direct host db.<project>.supabase.co may resolve only to IPv6. " +
+                "Many cloud hosts use IPv4 only; the direct host db.<project>.supabase.co may resolve only to IPv6. " +
                 "Permanent fix: In Supabase → Connect, copy the Session pooler or Transaction pooler string " +
                 "(host like aws-0-REGION.pooler.supabase.com; use Username postgres.<project-ref> when shown; port 5432 or 6543 per mode). " +
-                "Or purchase Supabase IPv4 add-on for direct db host. See Api/SUPABASE.md (Render / IPv6).",
+                "Or purchase Supabase IPv4 add-on for direct db host. See Api/SUPABASE.md (IPv6 section).",
                 ex);
         }
     }

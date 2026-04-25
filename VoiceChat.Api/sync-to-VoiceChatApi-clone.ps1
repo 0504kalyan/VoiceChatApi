@@ -1,5 +1,4 @@
-# Copies repo-root Dockerfile + render.yaml for https://github.com/0504kalyan/VoiceChatApi
-# (VoiceChat.sln at root, project under VoiceChat.Api/). Dockerfile belongs at REPO ROOT.
+# Copies repo-root Dockerfile assets for a standalone VoiceChatApi-style clone (VoiceChat.sln at clone root).
 #
 # Usage:
 #   powershell -File Api\VoiceChat.Api\sync-to-VoiceChatApi-clone.ps1 -VoiceChatApiRepoRoot "D:\path\to\VoiceChatApi"
@@ -18,11 +17,10 @@ $projDir = Join-Path $target 'VoiceChat.Api'
 $csproj = Join-Path $projDir 'VoiceChat.Api.csproj'
 
 if (-not (Test-Path -LiteralPath $csproj)) {
-    Write-Error "Expected: $csproj — pass the VoiceChatApi clone root (contains VoiceChat.Api\)."
+    Write-Error "Expected: $csproj — pass the clone root (contains VoiceChat.Api\)."
 }
 
 Copy-Item -LiteralPath (Join-Path $apiProjectDir 'Dockerfile.for-VoiceChatApi-github-root') -Destination (Join-Path $target 'Dockerfile') -Force
-Copy-Item -LiteralPath (Join-Path $apiProjectDir 'render.standalone-repo.yaml') -Destination (Join-Path $target 'render.yaml') -Force
 
 $ignoreSrc = Join-Path $monorepoRoot '.dockerignore'
 if (Test-Path -LiteralPath $ignoreSrc) {
@@ -31,11 +29,8 @@ if (Test-Path -LiteralPath $ignoreSrc) {
 }
 
 Write-Host "Copied Dockerfile -> $target\Dockerfile"
-Write-Host "Copied render.yaml -> $target\render.yaml"
 Write-Host ""
 Write-Host "Next (repo root):"
-Write-Host "  git add Dockerfile render.yaml .dockerignore"
-Write-Host "  git commit -m ""Dockerfile at repo root for Render"""
+Write-Host "  git add Dockerfile .dockerignore"
+Write-Host "  git commit -m ""Add Dockerfile at repo root"""
 Write-Host "  git push origin main"
-Write-Host ""
-Write-Host "Render: Root Directory = . ; Dockerfile Path = Dockerfile ; Context = ."

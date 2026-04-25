@@ -8,14 +8,8 @@ namespace VoiceChat.Api.Infrastructure;
 /// </summary>
 public static class PostgresConnectionStringLogging
 {
-    public static bool LooksLikeSqlServerConnectionString(string s) =>
-        s.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase)
-        || s.Contains("Integrated Security", StringComparison.OrdinalIgnoreCase)
-        || s.Contains("MultipleActiveResultSets", StringComparison.OrdinalIgnoreCase)
-        || s.Contains("Initial Catalog", StringComparison.OrdinalIgnoreCase);
-
     /// <summary>
-    /// Fails fast if Render/env still has a SQL Server string or anything Npgsql cannot parse.
+    /// Fails fast if configuration still has a SQL Server string or anything Npgsql cannot parse.
     /// </summary>
     public static void ThrowIfNotNpgsqlConnectionString(string connectionString)
     {
@@ -26,7 +20,7 @@ public static class PostgresConnectionStringLogging
         {
             throw new InvalidOperationException(
                 "Connection string looks like SQL Server (e.g. Trusted_Connection or Initial Catalog). This API uses PostgreSQL/Npgsql only. " +
-                "On Render, replace ConnectionStrings__DefaultConnection with your Supabase Postgres string, for example: " +
+                "Replace ConnectionStrings__DefaultConnection with your Supabase Postgres string, for example: " +
                 "Host=db.xxxxx.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_PASSWORD;SSL Mode=Require;Trust Server Certificate=true");
         }
 
@@ -40,6 +34,12 @@ public static class PostgresConnectionStringLogging
                 "Connection string is not valid for Npgsql/PostgreSQL. Use Host=, Port=, Database=, Username=, Password=, SSL Mode=. " +
                 "Remove SQL Server keywords. Supabase: Dashboard → Connect or Database → Connection string.", ex);
         }
+
+        static bool LooksLikeSqlServerConnectionString(string s) =>
+            s.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("Integrated Security", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("MultipleActiveResultSets", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("Initial Catalog", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string FormatForConsole(string? connectionString)
@@ -69,12 +69,12 @@ public static class PostgresConnectionStringLogging
     private static string DescribePasswordForLog(string? password)
     {
         if (string.IsNullOrEmpty(password))
-            return "EMPTY — set Password= in user secrets / .env / Render (error 28P01 = wrong or missing password)";
+            return "EMPTY — set Password= in user secrets / .env / environment (error 28P01 = wrong or missing password)";
         return $"set, length {password.Length} (value never logged)";
     }
 
     /// <summary>
-    /// Render/Linux production should not use a localhost-only DB string by mistake.
+    /// Production should not use a localhost-only DB string by mistake.
     /// </summary>
     public static void ThrowIfProductionUsesLocalOnlyHost(IHostEnvironment env, string connectionString)
     {
