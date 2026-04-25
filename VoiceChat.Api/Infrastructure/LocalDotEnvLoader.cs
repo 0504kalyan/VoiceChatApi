@@ -40,6 +40,42 @@ public static class ConfigurationPlaceholderExpander
 
             configuration.AddInMemoryCollection(batch);
         }
+
+        // Older appsettings used SupabaseCredentials:DefaultConnection while ConnectionStrings:DefaultConnection
+        // referenced {{SupabaseCredentials:ConnectionString}} — if that key was empty, Npgsql saw the literal "{{...}}"
+        // and threw "starting at index 0". Copy from either Supabase key when DefaultConnection is missing or unreplaced.
+        WarmDefaultConnectionFromSupabase(configuration);
+    }
+
+    private static void WarmDefaultConnectionFromSupabase(ConfigurationManager configuration)
+    {
+        var current = PostgresConnectionStringResolver.Normalize(configuration["ConnectionStrings:DefaultConnection"]);
+        if (!string.IsNullOrWhiteSpace(current) && !PostgresConnectionStringResolver.IsUnresolvedPlaceholder(current))
+            return;
+
+        var resolved = PickFirstNonEmpty(
+            PostgresConnectionStringResolver.Normalize(configuration["SupabaseCredentials:ConnectionString"]),
+            PostgresConnectionStringResolver.Normalize(configuration["SupabaseCredentials:DefaultConnection"]));
+
+        if (string.IsNullOrWhiteSpace(resolved))
+            return;
+
+        configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = resolved,
+            ["SupabaseCredentials:ConnectionString"] = resolved
+        });
+    }
+
+    private static string? PickFirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v))
+                return v;
+        }
+
+        return null;
     }
 
     private static string? Resolve(IConfiguration configuration, string path, int depth)

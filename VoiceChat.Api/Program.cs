@@ -38,16 +38,7 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-var conn = builder.Configuration.GetConnectionString("DefaultConnection");
-if (string.IsNullOrWhiteSpace(conn))
-{
-    throw new InvalidOperationException(
-        "Connection string 'ConnectionStrings:DefaultConnection' is missing or empty. " +
-        "Set SupabaseCredentials__ConnectionString (Supabase → Project Settings → Database) or ConnectionStrings__DefaultConnection. " +
-        "Local Development: see appsettings.Development.json or .env (see .env.example).");
-}
-
-PostgresConnectionStringLogging.ThrowIfNotNpgsqlConnectionString(conn);
+var conn = PostgresConnectionStringResolver.Resolve(builder.Configuration);
 NpgsqlSupabaseConnection.ThrowIfPoolerNeedsTenantUsername(conn);
 conn = NpgsqlSupabaseConnection.PrepareConnectionString(conn);
 PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);

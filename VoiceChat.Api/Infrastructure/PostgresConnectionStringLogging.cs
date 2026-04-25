@@ -8,6 +8,12 @@ namespace VoiceChat.Api.Infrastructure;
 /// </summary>
 public static class PostgresConnectionStringLogging
 {
+    public static bool LooksLikeSqlServerConnectionString(string s) =>
+        s.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase)
+        || s.Contains("Integrated Security", StringComparison.OrdinalIgnoreCase)
+        || s.Contains("MultipleActiveResultSets", StringComparison.OrdinalIgnoreCase)
+        || s.Contains("Initial Catalog", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Fails fast if Render/env still has a SQL Server string or anything Npgsql cannot parse.
     /// </summary>
@@ -34,12 +40,6 @@ public static class PostgresConnectionStringLogging
                 "Connection string is not valid for Npgsql/PostgreSQL. Use Host=, Port=, Database=, Username=, Password=, SSL Mode=. " +
                 "Remove SQL Server keywords. Supabase: Dashboard → Connect or Database → Connection string.", ex);
         }
-
-        static bool LooksLikeSqlServerConnectionString(string s) =>
-            s.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase)
-            || s.Contains("Integrated Security", StringComparison.OrdinalIgnoreCase)
-            || s.Contains("MultipleActiveResultSets", StringComparison.OrdinalIgnoreCase)
-            || s.Contains("Initial Catalog", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string FormatForConsole(string? connectionString)
