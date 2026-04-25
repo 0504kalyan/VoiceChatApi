@@ -220,14 +220,14 @@ if (app.Environment.IsDevelopment())
             "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
             "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
     }
-
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
-        options.RoutePrefix = "swagger";
-    });
 }
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "VoiceChat API v1");
+    options.RoutePrefix = "swagger";
+});
 
 // CORS must run between UseRouting and endpoint mapping so preflight + credentialed requests get headers.
 app.UseRouting();
