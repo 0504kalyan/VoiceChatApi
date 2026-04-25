@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using VoiceChat.Api.Data;
 using VoiceChat.Api.Infrastructure;
 using VoiceChat.Api.Models.Dtos;
@@ -42,28 +43,41 @@ public class AuthController(
             return BadRequest(new { message = "Use a Gmail address (@gmail.com or @googlemail.com)." });
 
         var norm = GmailAddress.Normalize(body.Email);
-        if (await db.Users.AnyAsync(u => u.NormalizedEmail == norm && u.EmailConfirmed, cancellationToken))
-            return Conflict(new { message = "This email is already registered. Sign in instead." });
-
-        var pending = await db.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == norm, cancellationToken);
-        if (pending is { EmailConfirmed: true })
-            return Conflict(new { message = "This email is already registered." });
-
-        if (pending is null)
+        User? pending;
+        try
         {
-            pending = new User
+            if (await db.Users.AnyAsync(u => u.NormalizedEmail == norm && u.EmailConfirmed, cancellationToken))
+                return Conflict(new { message = "This email is already registered. Sign in instead." });
+
+            pending = await db.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == norm, cancellationToken);
+            if (pending is { EmailConfirmed: true })
+                return Conflict(new { message = "This email is already registered." });
+
+            if (pending is null)
             {
-                Id = Guid.NewGuid(),
-                ExternalId = $"pending:{Guid.NewGuid():N}",
-                Email = norm,
-                NormalizedEmail = norm,
-                EmailConfirmed = false,
-                DisplayName = norm.Split('@')[0],
-                CreatedAt = DateTimeOffset.UtcNow,
-                IsActive = true
-            };
-            db.Users.Add(pending);
-            await db.SaveChangesAsync(cancellationToken);
+                pending = new User
+                {
+                    Id = Guid.NewGuid(),
+                    ExternalId = $"pending:{Guid.NewGuid():N}",
+                    Email = norm,
+                    NormalizedEmail = norm,
+                    EmailConfirmed = false,
+                    DisplayName = norm.Split('@')[0],
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    IsActive = true
+                };
+                db.Users.Add(pending);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is NpgsqlException || ex is TimeoutException || ex is DbUpdateException)
+        {
+            log.LogError(ex, "Database unavailable during register/send-otp for {Email}.", norm);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message =
+                    "Database is temporarily unavailable. Please try again in a few moments."
+            });
         }
 
         try
@@ -186,7 +200,17 @@ public class AuthController(
         if (user is null || string.IsNullOrEmpty(user.PasswordHash))
             return Unauthorized(new { message = "Invalid email or password." });
 
-        var verify = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, body.Password);
+        PasswordVerificationResult verify;
+        try
+        {
+            verify = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, body.Password);
+        }
+        catch (Exception ex)
+        {
+            // Legacy/plain-text or corrupted hashes in old environments should not crash login.
+            log.LogWarning(ex, "Password hash verification failed for user {UserId}.", user.Id);
+            return Unauthorized(new { message = "Invalid email or password." });
+        }
         if (verify is PasswordVerificationResult.Failed)
             return Unauthorized(new { message = "Invalid email or password." });
 

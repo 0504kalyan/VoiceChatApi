@@ -77,7 +77,11 @@ builder.Services.Configure<SupabaseCredentialsOptions>(builder.Configuration.Get
 
 builder.Services.AddDbContext<AppDbContext>(o =>
 {
-    o.UseNpgsql(conn);
+    o.UseNpgsql(conn, npgsql =>
+    {
+        npgsql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorCodesToAdd: null);
+        npgsql.CommandTimeout(30);
+    });
     o.UseSnakeCaseNamingConvention();
 });
 
