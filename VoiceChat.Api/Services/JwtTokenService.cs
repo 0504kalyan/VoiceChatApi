@@ -11,7 +11,7 @@ public class JwtTokenService(IOptions<JwtOptions> options)
 {
     private readonly JwtOptions _opt = options.Value;
 
-    public string CreateAccessToken(Guid userId, string email)
+    public string CreateAccessToken(Guid userId, string email, string? displayName = null)
     {
         if (string.IsNullOrWhiteSpace(_opt.SigningKey) || _opt.SigningKey.Length < 32)
             throw new InvalidOperationException("Jwt:SigningKey must be at least 32 characters.");
@@ -23,6 +23,7 @@ public class JwtTokenService(IOptions<JwtOptions> options)
         {
             new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
             new Claim(ClaimTypes.Email, email),
+            new Claim(ClaimTypes.Name, string.IsNullOrWhiteSpace(displayName) ? email.Split('@')[0] : displayName),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 

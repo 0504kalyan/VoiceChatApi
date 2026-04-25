@@ -26,6 +26,7 @@ public class HealthController(IOptions<GeminiOptions> geminiOptions) : Controlle
             baseUrl = opts.ResolveBaseUri().ToString().TrimEnd('/'),
             configured = !string.IsNullOrWhiteSpace(opts.ApiKey),
             models = GetConfiguredModels(opts),
+            maxHistoryMessages = Math.Max(4, opts.MaxHistoryMessages),
             hint =
                 "Set Gemini__ApiKey on the API server. GET /api/health/gemini/models lists configured model choices."
         });
@@ -40,7 +41,8 @@ public class HealthController(IOptions<GeminiOptions> geminiOptions) : Controlle
         {
             ok = true,
             defaultModel = LlmRuntime.DefaultChatModel(opts),
-            models = GetConfiguredModels(opts)
+            models = GetConfiguredModels(opts),
+            maxHistoryMessages = Math.Max(4, opts.MaxHistoryMessages)
         });
     }
 

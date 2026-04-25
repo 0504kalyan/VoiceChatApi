@@ -25,6 +25,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
     public async IAsyncEnumerable<string> StreamChatAsync(
         string model,
         IReadOnlyList<(string Role, string Content)> messages,
+        IReadOnlyList<LlmAttachment>? attachments = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var opts = options.Value;
@@ -35,11 +36,20 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         }
 
         var resolved = ResolveModel(model);
+        if (ShouldUseImageGeneration(messages, attachments, opts))
+        {
+            var imageResponse = await GenerateImageAsync(messages, attachments, opts, cancellationToken);
+            yield return string.IsNullOrWhiteSpace(imageResponse)
+                ? "I could not generate or enhance the image. Try a shorter prompt or a smaller image."
+                : imageResponse;
+            yield break;
+        }
+
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             BuildModelPath(resolved, stream: true, opts.ApiKey))
         {
-            Content = JsonContent.Create(BuildRequest(messages, opts, includeGoogleSearchGrounding: true), options: JsonOptions)
+            Content = JsonContent.Create(BuildRequest(messages, opts, attachments, includeGoogleSearchGrounding: true), options: JsonOptions)
         };
 
         HttpResponseMessage? response;
@@ -90,7 +100,54 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
 
                 foreach (var piece in ExtractTextPieces(json))
                     yield return piece;
+
+                if (HasOutputLimitFinishReason(json))
+                    yield return LlmStreamMarkers.OutputLimitReached;
             }
+        }
+    }
+
+    private async Task<string?> GenerateImageAsync(
+        IReadOnlyList<(string Role, string Content)> messages,
+        IReadOnlyList<LlmAttachment>? attachments,
+        GeminiOptions opts,
+        CancellationToken cancellationToken)
+    {
+        var model = string.IsNullOrWhiteSpace(opts.ImageGenerationModel)
+            ? "gemini-3.1-flash-image-preview"
+            : opts.ImageGenerationModel.Trim();
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            BuildModelPath(model, stream: false, opts.ApiKey))
+        {
+            Content = JsonContent.Create(
+                BuildRequest(
+                    messages,
+                    opts,
+                    attachments,
+                    includeGoogleSearchGrounding: false,
+                    includeImageResponse: true),
+                options: JsonOptions)
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or SocketException)
+        {
+            return LlmFallbackMessages.GeminiUnavailable(ex.Message);
+        }
+
+        using (response)
+        {
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return FormatGeminiHttpError(response.StatusCode, json);
+
+            return ExtractTextAndImages(json);
         }
     }
 
@@ -109,7 +166,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
             HttpMethod.Post,
             BuildModelPath(resolved, stream: false, opts.ApiKey))
         {
-            Content = JsonContent.Create(BuildRequest(messages, opts, includeGoogleSearchGrounding: false), options: JsonOptions)
+            Content = JsonContent.Create(BuildRequest(messages, opts, attachments: null, includeGoogleSearchGrounding: false), options: JsonOptions)
         };
 
         HttpResponseMessage response;
@@ -153,7 +210,9 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
     private static GeminiGenerateContentRequest BuildRequest(
         IReadOnlyList<(string Role, string Content)> messages,
         GeminiOptions opts,
-        bool includeGoogleSearchGrounding)
+        IReadOnlyList<LlmAttachment>? attachments,
+        bool includeGoogleSearchGrounding,
+        bool includeImageResponse = false)
     {
         var systemParts = new List<GeminiPart>();
         var contents = new List<GeminiContent>();
@@ -180,6 +239,8 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
                 [new GeminiPart(text)]));
         }
 
+        AddAttachmentsToLastUserMessage(contents, attachments);
+
         if (contents.Count == 0)
             contents.Add(new GeminiContent("user", [new GeminiPart("Hello")]));
 
@@ -187,7 +248,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         {
             SystemInstruction = systemParts.Count == 0 ? null : new GeminiSystemInstruction(systemParts),
             Contents = contents,
-            GenerationConfig = BuildGenerationConfig(opts),
+            GenerationConfig = BuildGenerationConfig(opts, includeImageResponse),
             Tools = includeGoogleSearchGrounding && opts.EnableGoogleSearchGrounding
                 ? [new GeminiTool { GoogleSearch = new GeminiGoogleSearch() }]
                 : null
@@ -203,22 +264,94 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
             "For latest news, current events, current prices, recent releases, or other time-sensitive facts, use Google Search grounding when available and mention when information may change.";
     }
 
-    private static GeminiGenerationConfig? BuildGenerationConfig(GeminiOptions opts)
+    private static GeminiGenerationConfig? BuildGenerationConfig(GeminiOptions opts, bool includeImageResponse)
     {
         var config = new GeminiGenerationConfig
         {
             MaxOutputTokens = opts.MaxOutputTokens is > 0 ? opts.MaxOutputTokens : null,
             Temperature = opts.Temperature,
             TopP = opts.TopP,
-            TopK = opts.TopK is > 0 ? opts.TopK : null
+            TopK = opts.TopK is > 0 ? opts.TopK : null,
+            ResponseModalities = includeImageResponse ? ["TEXT", "IMAGE"] : null,
+            ImageConfig = includeImageResponse
+                ? new GeminiImageConfig(
+                    string.IsNullOrWhiteSpace(opts.ImageAspectRatio) ? "1:1" : opts.ImageAspectRatio.Trim(),
+                    string.IsNullOrWhiteSpace(opts.ImageSize) ? "1K" : opts.ImageSize.Trim())
+                : null
         };
 
         return config.MaxOutputTokens is null &&
                config.Temperature is null &&
                config.TopP is null &&
-               config.TopK is null
+               config.TopK is null &&
+               config.ResponseModalities is null &&
+               config.ImageConfig is null
             ? null
             : config;
+    }
+
+    private static bool ShouldUseImageGeneration(
+        IReadOnlyList<(string Role, string Content)> messages,
+        IReadOnlyList<LlmAttachment>? attachments,
+        GeminiOptions opts)
+    {
+        if (!opts.EnableImageGeneration)
+            return false;
+
+        var prompt = messages.LastOrDefault(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase)).Content;
+        if (string.IsNullOrWhiteSpace(prompt))
+            return false;
+
+        var text = prompt.ToLowerInvariant();
+        var wantsImageOutput =
+            text.Contains("create image") ||
+            text.Contains("create an image") ||
+            text.Contains("generate image") ||
+            text.Contains("generate an image") ||
+            text.Contains("draw ") ||
+            text.Contains("make an image") ||
+            text.Contains("design an image") ||
+            text.Contains("return the same image") ||
+            text.Contains("enhance") ||
+            text.Contains("upscale") ||
+            text.Contains("restore image") ||
+            text.Contains("improve this image");
+
+        if (!wantsImageOutput)
+            return false;
+
+        var hasImageInput = attachments?.Any(a => a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) == true;
+        return hasImageInput || text.Contains("image") || text.Contains("picture") || text.Contains("photo");
+    }
+
+    private static void AddAttachmentsToLastUserMessage(
+        List<GeminiContent> contents,
+        IReadOnlyList<LlmAttachment>? attachments)
+    {
+        if (attachments is null || attachments.Count == 0)
+            return;
+
+        var userContent = contents.LastOrDefault(c => string.Equals(c.Role, "user", StringComparison.OrdinalIgnoreCase));
+        if (userContent is null)
+        {
+            userContent = new GeminiContent("user", [new GeminiPart("Please review the attached files.")]);
+            contents.Add(userContent);
+        }
+
+        foreach (var attachment in attachments.Take(6))
+        {
+            if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+                continue;
+
+            userContent.Parts.Add(new GeminiPart
+            {
+                InlineData = new GeminiInlineData(
+                    string.IsNullOrWhiteSpace(attachment.ContentType)
+                        ? "application/octet-stream"
+                        : attachment.ContentType,
+                    attachment.Base64Data)
+            });
+        }
     }
 
     private static string? ExtractSseJson(string line)
@@ -260,6 +393,49 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         }
     }
 
+    private static bool HasOutputLimitFinishReason(string json)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(json, JsonOptions);
+            return parsed?.Candidates?.Any(c =>
+                string.Equals(c.FinishReason, "MAX_TOKENS", StringComparison.OrdinalIgnoreCase)) == true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string ExtractTextAndImages(string json)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(json, JsonOptions);
+            var output = new List<string>();
+            foreach (var part in parsed?.Candidates?.SelectMany(c => c.Content?.Parts ?? []) ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(part.Text))
+                {
+                    output.Add(part.Text.Trim());
+                    continue;
+                }
+
+                if (part.InlineData is { Data.Length: > 0 } image)
+                {
+                    var mime = string.IsNullOrWhiteSpace(image.MimeType) ? "image/png" : image.MimeType;
+                    output.Add($"![Generated image](data:{mime};base64,{image.Data})");
+                }
+            }
+
+            return string.Join("\n\n", output.Where(x => !string.IsNullOrWhiteSpace(x)));
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
     private static string FormatGeminiHttpError(HttpStatusCode statusCode, string body)
     {
         var code = (int)statusCode;
@@ -267,9 +443,34 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         if (string.IsNullOrWhiteSpace(detail))
             detail = "(empty response body)";
 
+        if (statusCode == HttpStatusCode.TooManyRequests)
+        {
+            var retryText = ExtractRetryText(detail);
+            return
+                "Gemini image/text generation quota is currently exhausted.\r\n\r\n" +
+                "This happens when the Google AI Studio/Gemini API key has reached its free-tier or project rate limit. " +
+                "Enable billing, wait for quota to reset, or use another Gemini API key/project with available image-generation quota." +
+                (retryText is null ? string.Empty : $"\r\n\r\n{retryText}");
+        }
+
         return
             $"Gemini returned HTTP {code}.\r\n\r\n{detail}\r\n\r\n" +
             "Check Gemini__ApiKey, Gemini__DefaultModel, and that the Gemini API is enabled for your key.";
+    }
+
+    private static string? ExtractRetryText(string detail)
+    {
+        const string marker = "Please retry in ";
+        var start = detail.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return null;
+
+        var end = detail.IndexOf('.', start + marker.Length);
+        if (end < 0)
+            return null;
+
+        var retry = detail[start..(end + 1)].Trim();
+        return retry.Length == 0 ? null : retry;
     }
 
     private static string? TryExtractGeminiError(string json)
@@ -314,7 +515,22 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
 
     private sealed record GeminiContent(string Role, List<GeminiPart> Parts);
 
-    private sealed record GeminiPart(string Text);
+    private sealed class GeminiPart
+    {
+        public GeminiPart()
+        {
+        }
+
+        public GeminiPart(string text)
+        {
+            Text = text;
+        }
+
+        public string? Text { get; init; }
+        public GeminiInlineData? InlineData { get; init; }
+    }
+
+    private sealed record GeminiInlineData(string MimeType, string Data);
 
     private sealed class GeminiGenerationConfig
     {
@@ -322,7 +538,11 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         public double? Temperature { get; init; }
         public double? TopP { get; init; }
         public int? TopK { get; init; }
+        public string[]? ResponseModalities { get; init; }
+        public GeminiImageConfig? ImageConfig { get; init; }
     }
+
+    private sealed record GeminiImageConfig(string AspectRatio, string ImageSize);
 
     private sealed class GeminiTool
     {
@@ -340,6 +560,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
     private sealed class GeminiCandidate
     {
         public GeminiResponseContent? Content { get; set; }
+        public string? FinishReason { get; set; }
     }
 
     private sealed class GeminiResponseContent
@@ -350,5 +571,6 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
     private sealed class GeminiResponsePart
     {
         public string? Text { get; set; }
+        public GeminiInlineData? InlineData { get; set; }
     }
 }

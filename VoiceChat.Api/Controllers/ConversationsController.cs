@@ -84,6 +84,14 @@ public class ConversationsController(
                 return BadRequest(new { message = "Model name is too long." });
         }
 
+        if (body is not null && body.Title is not null)
+        {
+            var title = body.Title.Trim();
+            conv.Title = string.IsNullOrWhiteSpace(title) ? null : title;
+            if (conv.Title?.Length > 500)
+                return BadRequest(new { message = "Title is too long." });
+        }
+
         conv.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new ConversationListItemDto(conv.Id, conv.Title, conv.Model, conv.UpdatedAt));
@@ -102,7 +110,7 @@ public class ConversationsController(
             .AsNoTracking()
             .Where(m => m.ConversationId == id)
             .OrderBy(m => m.CreatedAt)
-            .Select(m => new MessageDto(m.Id, m.Role, m.Content, m.InputMode, m.CreatedAt))
+            .Select(m => new MessageDto(m.Id, m.Role, m.Content, m.InputMode, m.CreatedAt, m.IsGenerationComplete))
             .ToListAsync(cancellationToken);
         return Ok(messages);
     }

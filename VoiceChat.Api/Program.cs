@@ -27,7 +27,11 @@ LocalDotEnvLoader.MergeIntoConfiguration(builder.Configuration);
 ConfigurationPlaceholderExpander.Apply(builder.Configuration);
 
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    // Allows small document/image/audio/video attachments to be sent to Gemini inline.
+    options.MaximumReceiveMessageSize = 20 * 1024 * 1024;
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo

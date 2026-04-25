@@ -38,7 +38,7 @@ public class ChatHub(
     /// Returns immediately so the client can invoke <c>cancelGeneration</c> while Gemini is still streaming.
     /// (SignalR otherwise processes hub calls on the same connection one at a time.)
     /// </summary>
-    public Task SendMessage(Guid conversationId, string content, string inputMode)
+    public Task SendMessage(Guid conversationId, string content, string inputMode, IReadOnlyList<ChatUploadAttachment>? attachments = null)
     {
         var group = conversationId.ToString();
         var connectionAborted = Context.ConnectionAborted;
@@ -52,6 +52,7 @@ public class ChatHub(
             conversationId,
             content,
             inputMode,
+            NormalizeAttachments(attachments),
             linked,
             ct,
             connectionAborted,
@@ -65,6 +66,7 @@ public class ChatHub(
         Guid conversationId,
         string content,
         string inputMode,
+        IReadOnlyList<LlmAttachment> attachments,
         CancellationTokenSource linked,
         CancellationToken ct,
         CancellationToken connectionAborted,
@@ -78,7 +80,7 @@ public class ChatHub(
             await using var scope = scopeFactory.CreateAsyncScope();
             var orchestrator = scope.ServiceProvider.GetRequiredService<IChatOrchestrator>();
 
-            await foreach (var token in orchestrator.StreamAssistantReplyAsync(conversationId, userId, content, inputMode, ct))
+            await foreach (var token in orchestrator.StreamAssistantReplyAsync(conversationId, userId, content, inputMode, attachments, ct))
             {
                 await hubContext.Clients.Group(group).SendAsync("ReceiveToken", conversationId, token, cancellationToken: ct);
             }
@@ -114,4 +116,26 @@ public class ChatHub(
             cancellationRegistry.Complete(conversationId);
         }
     }
+
+    private static IReadOnlyList<LlmAttachment> NormalizeAttachments(IReadOnlyList<ChatUploadAttachment>? attachments)
+    {
+        if (attachments is null || attachments.Count == 0)
+            return [];
+
+        return attachments
+            .Where(a => !string.IsNullOrWhiteSpace(a.Base64Data))
+            .Take(6)
+            .Select(a => new LlmAttachment(
+                string.IsNullOrWhiteSpace(a.FileName) ? "attachment" : a.FileName.Trim(),
+                string.IsNullOrWhiteSpace(a.ContentType) ? "application/octet-stream" : a.ContentType.Trim(),
+                a.Base64Data.Trim()))
+            .ToList();
+    }
+}
+
+public sealed class ChatUploadAttachment
+{
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public string Base64Data { get; set; } = string.Empty;
 }

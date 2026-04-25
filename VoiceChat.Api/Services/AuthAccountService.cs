@@ -200,8 +200,9 @@ public sealed class AuthAccountService(
     private AuthResponseDto IssueAuthResponse(User user) =>
         new()
         {
-            AccessToken = jwt.CreateAccessToken(user.Id, user.Email!),
+            AccessToken = jwt.CreateAccessToken(user.Id, user.Email!, user.DisplayName),
             Email = user.Email!,
+            DisplayName = string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email!.Split('@')[0] : user.DisplayName!,
             UserId = user.Id
         };
 }

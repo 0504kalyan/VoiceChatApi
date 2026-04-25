@@ -15,6 +15,9 @@ public class ChatOrchestrator(
     IOptions<GeminiOptions> geminiOptions,
     ILogger<ChatOrchestrator> logger) : IChatOrchestrator
 {
+    public const string ContinuationPrompt =
+        "Continue from exactly where you stopped in the previous assistant response. Do not repeat content already written.";
+
     private static readonly JsonSerializerOptions JsonArchiveOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -26,6 +29,7 @@ public class ChatOrchestrator(
         Guid userId,
         string userContent,
         string inputMode,
+        IReadOnlyList<LlmAttachment>? attachments = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var conversation = await db.Conversations.FirstOrDefaultAsync(
@@ -39,25 +43,43 @@ public class ChatOrchestrator(
         if (!string.Equals(conversation.Model, activeModel, StringComparison.Ordinal))
             conversation.Model = activeModel;
 
-        var userMessage = new Message
+        var isContinuation = IsContinuationRequest(userContent) ||
+                             string.Equals(inputMode, "continue", StringComparison.OrdinalIgnoreCase);
+        Message? userMessage = null;
+        Message? assistantToAppend = null;
+        if (isContinuation)
         {
-            Id = Guid.NewGuid(),
-            ConversationId = conversationId,
-            Role = "user",
-            Content = userContent,
-            InputMode = inputMode is "voice" ? "voice" : "text",
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-        db.Messages.Add(userMessage);
-        await db.SaveChangesAsync(cancellationToken);
+            assistantToAppend = await db.Messages
+                .Where(m => m.ConversationId == conversationId && m.Role == "assistant" && !m.IsGenerationComplete)
+                .OrderByDescending(m => m.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (assistantToAppend is null)
+                throw new InvalidOperationException("No incomplete assistant message found to continue.");
+        }
+        else
+        {
+            var userMessageContent = BuildStoredUserMessage(userContent, attachments);
+            userMessage = new Message
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversationId,
+                Role = "user",
+                Content = userMessageContent,
+                InputMode = inputMode is "voice" ? "voice" : "text",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            db.Messages.Add(userMessage);
+            await db.SaveChangesAsync(cancellationToken);
+        }
 
         var maxHistory = Math.Max(4, geminiOptions.Value.MaxHistoryMessages);
+        var includeIncompleteAssistantContext = isContinuation;
         // Newest N messages only — avoids loading entire threads before the first model token.
-        // Omit assistant messages that were cut off by "Stop" — they confuse the model and add tokens for the next turn.
+        // Omit incomplete assistant messages except for explicit continuation requests.
         var rows = await db.Messages
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
-            .Where(m => m.Role != "assistant" || m.IsGenerationComplete)
+            .Where(m => m.Role != "assistant" || m.IsGenerationComplete || includeIncompleteAssistantContext)
             .OrderByDescending(m => m.CreatedAt)
             .Take(maxHistory)
             .OrderBy(m => m.CreatedAt)
@@ -70,11 +92,14 @@ public class ChatOrchestrator(
         if (!string.IsNullOrEmpty(system))
             messagesForLlm.Add(("system", system));
         messagesForLlm.AddRange(history);
+        if (includeIncompleteAssistantContext)
+            messagesForLlm.Add(("user", ContinuationPrompt));
 
         var buffer = new System.Text.StringBuilder();
         string? recoveryFallback = null;
+        var outputLimitReached = false;
 
-        await using var enumerator = llm.StreamChatAsync(activeModel, messagesForLlm, cancellationToken)
+        await using var enumerator = llm.StreamChatAsync(activeModel, messagesForLlm, attachments, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         while (true)
@@ -91,6 +116,7 @@ public class ChatOrchestrator(
                     conversationId,
                     conversation,
                     userMessage,
+                    assistantToAppend,
                     buffer,
                     stoppedEarly: true,
                     CancellationToken.None);
@@ -109,6 +135,11 @@ public class ChatOrchestrator(
                 break;
 
             var token = enumerator.Current;
+            if (token == LlmStreamMarkers.OutputLimitReached)
+            {
+                outputLimitReached = true;
+                continue;
+            }
             buffer.Append(token);
             yield return token;
         }
@@ -120,15 +151,17 @@ public class ChatOrchestrator(
             conversationId,
             conversation,
             userMessage,
+            assistantToAppend,
             buffer,
-            stoppedEarly: false,
+            stoppedEarly: outputLimitReached,
             cancellationToken);
     }
 
     private async Task PersistAssistantReplyAsync(
         Guid conversationId,
         Conversation conversation,
-        Message userMessage,
+        Message? userMessage,
+        Message? assistantToAppend,
         System.Text.StringBuilder buffer,
         bool stoppedEarly,
         CancellationToken cancellationToken)
@@ -137,28 +170,35 @@ public class ChatOrchestrator(
         if (string.IsNullOrWhiteSpace(replyText))
             return;
 
-        var assistant = new Message
+        var assistant = assistantToAppend ?? new Message
         {
             Id = Guid.NewGuid(),
             ConversationId = conversationId,
             Role = "assistant",
-            Content = replyText,
             InputMode = "text",
             CreatedAt = DateTimeOffset.UtcNow,
-            IsGenerationComplete = !stoppedEarly
         };
-        db.Messages.Add(assistant);
+        if (assistantToAppend is null)
+        {
+            assistant.Content = replyText;
+            db.Messages.Add(assistant);
+        }
+        else
+        {
+            assistant.Content += replyText;
+        }
+        assistant.IsGenerationComplete = !stoppedEarly;
 
         var archiveJson = JsonSerializer.Serialize(
             new
             {
                 conversationId,
                 model = conversation.Model,
-                userRequest = userMessage.Content,
+                userRequest = userMessage?.Content ?? "Continue",
                 assistantContent = replyText,
-                userMessageId = userMessage.Id,
+                userMessageId = userMessage?.Id,
                 assistantMessageId = assistant.Id,
-                userMessageCreatedAt = userMessage.CreatedAt,
+                userMessageCreatedAt = userMessage?.CreatedAt,
                 assistantMessageCreatedAt = assistant.CreatedAt,
                 stoppedEarly
             },
@@ -168,7 +208,7 @@ public class ChatOrchestrator(
         {
             Id = Guid.NewGuid(),
             ConversationId = conversationId,
-            UserRequest = userMessage.Content,
+            UserRequest = userMessage?.Content ?? "Continue",
             ResponseText = replyText,
             ResponseJson = archiveJson,
             CreatedAt = DateTimeOffset.UtcNow
@@ -177,7 +217,7 @@ public class ChatOrchestrator(
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
 
         // Stopped early: use a quick title only and skip the extra LLM title call.
-        if (string.IsNullOrWhiteSpace(conversation.Title))
+        if (userMessage is not null && string.IsNullOrWhiteSpace(conversation.Title))
         {
             if (stoppedEarly)
                 conversation.Title = BuildFallbackTitleFromUserMessage(userMessage.Content);
@@ -243,6 +283,25 @@ public class ChatOrchestrator(
             return t;
         return t[..77].TrimEnd() + "…";
     }
+
+    private static string BuildStoredUserMessage(string userContent, IReadOnlyList<LlmAttachment>? attachments)
+    {
+        if (IsContinuationRequest(userContent))
+            return "Continue";
+
+        var text = userContent.Trim();
+        if (attachments is null || attachments.Count == 0)
+            return text;
+
+        var countText = attachments.Count == 1 ? "1 file attached" : $"{attachments.Count} files attached";
+        if (string.IsNullOrWhiteSpace(text))
+            return countText;
+
+        return $"{text}\n\n{countText}";
+    }
+
+    private static bool IsContinuationRequest(string userContent) =>
+        string.Equals(userContent.Trim(), ContinuationPrompt, StringComparison.Ordinal);
 
     private static string TruncateForTitle(string s, int max)
     {

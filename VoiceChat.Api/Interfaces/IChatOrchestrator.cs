@@ -7,5 +7,6 @@ public interface IChatOrchestrator
         Guid userId,
         string userContent,
         string inputMode,
+        IReadOnlyList<LlmAttachment>? attachments = null,
         CancellationToken cancellationToken = default);
 }

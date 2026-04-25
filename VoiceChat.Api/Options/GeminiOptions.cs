@@ -32,6 +32,18 @@ public sealed class GeminiOptions
     /// <summary>Optional <c>topK</c> sampling.</summary>
     public int? TopK { get; set; }
 
+    /// <summary>Enables image generation/editing when the user asks to create or enhance images.</summary>
+    public bool EnableImageGeneration { get; set; } = true;
+
+    /// <summary>Fast Gemini image model used for create/enhance image requests.</summary>
+    public string ImageGenerationModel { get; set; } = "gemini-3.1-flash-image-preview";
+
+    /// <summary>Image output aspect ratio for generated/enhanced images.</summary>
+    public string ImageAspectRatio { get; set; } = "1:1";
+
+    /// <summary>Image output size. Use 1K for faster responses; increase to 2K for quality.</summary>
+    public string ImageSize { get; set; } = "1K";
+
     /// <summary>
     /// Enables Gemini Google Search grounding for current/latest/news style questions.
     /// Requires a model that supports the <c>google_search</c> tool.
@@ -57,7 +69,8 @@ public sealed class GeminiOptions
     public const string DefaultAssistantSystemPrompt =
         "You are VoiceChat's AI assistant. Be clear, accurate, and concise unless the user asks for depth.\n" +
         "You can answer general questions, explain concepts, and generate code snippets when asked.\n" +
-        "For technical fixes: prefer safe, verifiable steps and code. When a problem has multiple plausible causes, briefly note the main alternatives.";
+        "For technical fixes: prefer safe, verifiable steps and code. When a problem has multiple plausible causes, briefly note the main alternatives.\n" +
+        "When you provide code, keep code inside fenced code blocks only. After each code block, add a short plain-text note explaining what that code does.";
 
     public Uri ResolveBaseUri()
     {
