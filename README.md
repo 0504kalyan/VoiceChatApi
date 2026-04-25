@@ -51,6 +51,7 @@ Gemini__DefaultModel=gemini-2.5-flash
 - **`Gemini:DefaultModel`** / **`Gemini__DefaultModel`** — default model for new chats.
 - **`Gemini:MaxOutputTokens`** / **`Gemini__MaxOutputTokens`** — maximum generated output tokens.
 - **`Gemini:MaxHistoryMessages`** / **`Gemini__MaxHistoryMessages`** — number of latest messages sent as context.
+- **`Gemini:EnableGoogleSearchGrounding`** / **`Gemini__EnableGoogleSearchGrounding`** — enables Google Search grounding for current/latest/news questions.
 - **`Gemini:AvailableModels`** / **`Gemini__AvailableModels__0`** etc. — model dropdown entries.
 
 5. Check the API: `GET /api/health/llm` shows the active defaults; `GET /api/health/gemini/models` lists configured model choices.
@@ -74,6 +75,7 @@ Gemini__ApiKey=<your Gemini API key>
 Gemini__DefaultModel=gemini-2.5-flash
 Gemini__MaxOutputTokens=2048
 Gemini__MaxHistoryMessages=16
+Gemini__EnableGoogleSearchGrounding=true
 Gemini__AvailableModels__0=gemini-2.5-flash
 Gemini__AvailableModels__1=gemini-2.5-flash-lite
 Gemini__AvailableModels__2=gemini-2.5-pro

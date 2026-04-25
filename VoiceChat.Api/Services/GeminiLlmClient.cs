@@ -39,7 +39,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
             HttpMethod.Post,
             BuildModelPath(resolved, stream: true, opts.ApiKey))
         {
-            Content = JsonContent.Create(BuildRequest(messages, opts), options: JsonOptions)
+            Content = JsonContent.Create(BuildRequest(messages, opts, includeGoogleSearchGrounding: true), options: JsonOptions)
         };
 
         HttpResponseMessage? response;
@@ -109,7 +109,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
             HttpMethod.Post,
             BuildModelPath(resolved, stream: false, opts.ApiKey))
         {
-            Content = JsonContent.Create(BuildRequest(messages, opts), options: JsonOptions)
+            Content = JsonContent.Create(BuildRequest(messages, opts, includeGoogleSearchGrounding: false), options: JsonOptions)
         };
 
         HttpResponseMessage response;
@@ -152,7 +152,8 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
 
     private static GeminiGenerateContentRequest BuildRequest(
         IReadOnlyList<(string Role, string Content)> messages,
-        GeminiOptions opts)
+        GeminiOptions opts,
+        bool includeGoogleSearchGrounding)
     {
         var systemParts = new List<GeminiPart>();
         var contents = new List<GeminiContent>();
@@ -160,6 +161,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         var configuredSystem = opts.SystemPrompt?.Trim();
         if (!string.IsNullOrEmpty(configuredSystem))
             systemParts.Add(new GeminiPart(configuredSystem));
+        systemParts.Add(new GeminiPart(BuildCurrentDateInstruction()));
 
         foreach (var (role, content) in messages)
         {
@@ -185,8 +187,20 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         {
             SystemInstruction = systemParts.Count == 0 ? null : new GeminiSystemInstruction(systemParts),
             Contents = contents,
-            GenerationConfig = BuildGenerationConfig(opts)
+            GenerationConfig = BuildGenerationConfig(opts),
+            Tools = includeGoogleSearchGrounding && opts.EnableGoogleSearchGrounding
+                ? [new GeminiTool { GoogleSearch = new GeminiGoogleSearch() }]
+                : null
         };
+    }
+
+    private static string BuildCurrentDateInstruction()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return
+            $"Current date/time (UTC): {now:dddd, MMMM d, yyyy HH:mm:ss} UTC.\n" +
+            "If the user asks for the current date/time, answer from this value. " +
+            "For latest news, current events, current prices, recent releases, or other time-sensitive facts, use Google Search grounding when available and mention when information may change.";
     }
 
     private static GeminiGenerationConfig? BuildGenerationConfig(GeminiOptions opts)
@@ -293,6 +307,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         public GeminiSystemInstruction? SystemInstruction { get; init; }
         public required List<GeminiContent> Contents { get; init; }
         public GeminiGenerationConfig? GenerationConfig { get; init; }
+        public List<GeminiTool>? Tools { get; init; }
     }
 
     private sealed record GeminiSystemInstruction(List<GeminiPart> Parts);
@@ -308,6 +323,14 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         public double? TopP { get; init; }
         public int? TopK { get; init; }
     }
+
+    private sealed class GeminiTool
+    {
+        [JsonPropertyName("google_search")]
+        public GeminiGoogleSearch? GoogleSearch { get; init; }
+    }
+
+    private sealed class GeminiGoogleSearch;
 
     private sealed class GeminiGenerateContentResponse
     {

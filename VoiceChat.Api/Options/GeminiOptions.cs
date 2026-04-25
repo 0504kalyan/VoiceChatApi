@@ -32,6 +32,12 @@ public sealed class GeminiOptions
     /// <summary>Optional <c>topK</c> sampling.</summary>
     public int? TopK { get; set; }
 
+    /// <summary>
+    /// Enables Gemini Google Search grounding for current/latest/news style questions.
+    /// Requires a model that supports the <c>google_search</c> tool.
+    /// </summary>
+    public bool EnableGoogleSearchGrounding { get; set; } = true;
+
     /// <summary>Models shown in the UI dropdown. Override with <c>Gemini__AvailableModels__0</c>, etc.</summary>
     public string[] AvailableModels { get; set; } =
     [
