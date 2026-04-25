@@ -221,6 +221,7 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
         if (!string.IsNullOrEmpty(configuredSystem))
             systemParts.Add(new GeminiPart(configuredSystem));
         systemParts.Add(new GeminiPart(BuildCurrentDateInstruction()));
+        systemParts.Add(new GeminiPart(BuildCodeExplanationInstruction()));
 
         foreach (var (role, content) in messages)
         {
@@ -263,6 +264,12 @@ public sealed class GeminiLlmClient(HttpClient http, IOptions<GeminiOptions> opt
             "If the user asks for the current date/time, answer from this value. " +
             "For latest news, current events, current prices, recent releases, or other time-sensitive facts, use Google Search grounding when available and mention when information may change.";
     }
+
+    private static string BuildCodeExplanationInstruction() =>
+        "When generating code, keep each code sample inside a fenced code block with the correct language. " +
+        "After every code block, add a short plain-text explanation as bullet points or numbered points, not a long paragraph. " +
+        "Help a beginner understand that specific block by explaining what it does, why important methods/classes/declarations are used, and what behavior or output to expect. " +
+        "Do not put these explanations inside code fences.";
 
     private static GeminiGenerationConfig? BuildGenerationConfig(GeminiOptions opts, bool includeImageResponse)
     {

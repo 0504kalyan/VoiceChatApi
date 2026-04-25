@@ -49,7 +49,7 @@ Gemini__DefaultModel=gemini-2.5-flash
 4. Optional configuration (`VoiceChat.Api/appsettings.json` or environment variables):
 
 - **`Gemini:DefaultModel`** / **`Gemini__DefaultModel`** — default model for new chats.
-- **`Gemini:MaxOutputTokens`** / **`Gemini__MaxOutputTokens`** — maximum generated output tokens.
+- **`Gemini:MaxOutputTokens`** / **`Gemini__MaxOutputTokens`** — optional generated output cap. Leave unset/null to let Gemini generate up to the model/provider limit; the API auto-continues if Gemini reports `MAX_TOKENS`.
 - **`Gemini:MaxHistoryMessages`** / **`Gemini__MaxHistoryMessages`** — number of latest messages sent as context.
 - **`Gemini:EnableGoogleSearchGrounding`** / **`Gemini__EnableGoogleSearchGrounding`** — enables Google Search grounding for current/latest/news questions.
 - **`Gemini:AvailableModels`** / **`Gemini__AvailableModels__0`** etc. — model dropdown entries.
@@ -73,7 +73,7 @@ Jwt__ExpiryMinutes=10080
 
 Gemini__ApiKey=<your Gemini API key>
 Gemini__DefaultModel=gemini-2.5-flash
-Gemini__MaxOutputTokens=2048
+# Optional: omit Gemini__MaxOutputTokens to avoid an app-level response cap.
 Gemini__MaxHistoryMessages=16
 Gemini__EnableGoogleSearchGrounding=true
 Gemini__AvailableModels__0=gemini-2.5-flash

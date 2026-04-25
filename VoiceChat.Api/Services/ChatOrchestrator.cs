@@ -16,7 +16,11 @@ public class ChatOrchestrator(
     ILogger<ChatOrchestrator> logger) : IChatOrchestrator
 {
     public const string ContinuationPrompt =
-        "Continue from exactly where you stopped in the previous assistant response. Do not repeat content already written.";
+        "Continue from exactly where you stopped in the previous assistant response. Do not repeat content already written. " +
+        "If you finish a code block, add the plain-text bullet-point explanation for that block after the fence.";
+
+    private const string AutoContinuationPrompt =
+        "Continue from exactly where you stopped. Do not repeat previous content. Complete the remaining task.";
 
     private static readonly JsonSerializerOptions JsonArchiveOptions = new()
     {
@@ -94,54 +98,75 @@ public class ChatOrchestrator(
         messagesForLlm.AddRange(history);
         if (includeIncompleteAssistantContext)
             messagesForLlm.Add(("user", ContinuationPrompt));
+        var baseMessagesForLlm = messagesForLlm.ToList();
 
         var buffer = new System.Text.StringBuilder();
         string? recoveryFallback = null;
-        var outputLimitReached = false;
+        var stoppedEarly = false;
+        var autoContinuationCount = 0;
 
-        await using var enumerator = llm.StreamChatAsync(activeModel, messagesForLlm, attachments, cancellationToken)
-            .GetAsyncEnumerator(cancellationToken);
-
-        while (true)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            bool hasNext;
-            try
+            var requestMessages = BuildMessagesForCurrentGeneration(baseMessagesForLlm, buffer, autoContinuationCount);
+            var outputLimitReached = false;
+
+            await using var enumerator = llm.StreamChatAsync(
+                    activeModel,
+                    requestMessages,
+                    autoContinuationCount == 0 ? attachments : null,
+                    cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+
+            while (true)
             {
-                hasNext = await enumerator.MoveNextAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                // Commit partial text without the request token — it is already canceled and would skip SaveChanges.
-                await PersistAssistantReplyAsync(
-                    conversationId,
-                    conversation,
-                    userMessage,
-                    assistantToAppend,
-                    buffer,
-                    stoppedEarly: true,
-                    CancellationToken.None);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "LLM stream failed for conversation {ConversationId}", conversationId);
-                buffer.Clear();
-                recoveryFallback = LlmFallbackMessages.Unavailable();
-                buffer.Append(recoveryFallback);
-                break;
+                bool hasNext;
+                try
+                {
+                    hasNext = await enumerator.MoveNextAsync();
+                }
+                catch (OperationCanceledException)
+                {
+                    // Commit partial text without the request token — it is already canceled and would skip SaveChanges.
+                    await PersistAssistantReplyAsync(
+                        conversationId,
+                        conversation,
+                        userMessage,
+                        assistantToAppend,
+                        buffer,
+                        stoppedEarly: true,
+                        CancellationToken.None);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "LLM stream failed for conversation {ConversationId}", conversationId);
+                    buffer.Clear();
+                    recoveryFallback = LlmFallbackMessages.Unavailable();
+                    buffer.Append(recoveryFallback);
+                    break;
+                }
+
+                if (!hasNext)
+                    break;
+
+                var token = enumerator.Current;
+                if (token == LlmStreamMarkers.OutputLimitReached)
+                {
+                    outputLimitReached = true;
+                    continue;
+                }
+                buffer.Append(token);
+                yield return token;
             }
 
-            if (!hasNext)
+            if (recoveryFallback is not null || !outputLimitReached)
                 break;
 
-            var token = enumerator.Current;
-            if (token == LlmStreamMarkers.OutputLimitReached)
-            {
-                outputLimitReached = true;
-                continue;
-            }
-            buffer.Append(token);
-            yield return token;
+            autoContinuationCount++;
+            logger.LogInformation(
+                "Gemini hit output limit for conversation {ConversationId}; automatically continuing response (part {Part}).",
+                conversationId,
+                autoContinuationCount + 1);
         }
 
         if (recoveryFallback is not null)
@@ -153,8 +178,22 @@ public class ChatOrchestrator(
             userMessage,
             assistantToAppend,
             buffer,
-            stoppedEarly: outputLimitReached,
+            stoppedEarly,
             cancellationToken);
+    }
+
+    private static IReadOnlyList<(string Role, string Content)> BuildMessagesForCurrentGeneration(
+        IReadOnlyList<(string Role, string Content)> baseMessages,
+        System.Text.StringBuilder generatedSoFar,
+        int autoContinuationCount)
+    {
+        if (autoContinuationCount == 0 || generatedSoFar.Length == 0)
+            return baseMessages;
+
+        var messages = baseMessages.ToList();
+        messages.Add(("assistant", generatedSoFar.ToString()));
+        messages.Add(("user", AutoContinuationPrompt));
+        return messages;
     }
 
     private async Task PersistAssistantReplyAsync(

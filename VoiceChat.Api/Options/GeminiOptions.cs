@@ -20,8 +20,8 @@ public sealed class GeminiOptions
     /// <summary>Max messages to send to Gemini (newest). Lower = smaller prompts and lower token cost.</summary>
     public int MaxHistoryMessages { get; set; } = 20;
 
-    /// <summary>Optional output-token cap sent as <c>maxOutputTokens</c>.</summary>
-    public int? MaxOutputTokens { get; set; } = 2048;
+    /// <summary>Optional output-token cap sent as <c>maxOutputTokens</c>. Leave empty to let Gemini generate up to the model/provider limit.</summary>
+    public int? MaxOutputTokens { get; set; }
 
     /// <summary>Optional creativity value sent as <c>temperature</c>.</summary>
     public double? Temperature { get; set; } = 0.7;
@@ -70,7 +70,7 @@ public sealed class GeminiOptions
         "You are VoiceChat's AI assistant. Be clear, accurate, and concise unless the user asks for depth.\n" +
         "You can answer general questions, explain concepts, and generate code snippets when asked.\n" +
         "For technical fixes: prefer safe, verifiable steps and code. When a problem has multiple plausible causes, briefly note the main alternatives.\n" +
-        "When you provide code, keep code inside fenced code blocks only. After each code block, add a short plain-text note explaining what that code does.";
+        "When you provide code, keep code inside fenced code blocks only. After each code block, add a short plain-text explanation as bullet points or numbered points, not a long paragraph. Cover what the block does, why key methods/classes/declarations are used, and what behavior or output to expect.";
 
     public Uri ResolveBaseUri()
     {
