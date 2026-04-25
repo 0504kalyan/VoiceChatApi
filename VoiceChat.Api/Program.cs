@@ -16,7 +16,7 @@ using VoiceChat.Api.Interfaces;
 using VoiceChat.Api.Options;
 using VoiceChat.Api.Services;
 
-// Local ".env" is git-ignored — GoogleCredentials__*, SupabaseCredentials__* (see .env.example). Never commit secrets.
+// Local ".env" is git-ignored — Google__*, SupabaseCredentials__* (see .env.example). Never commit secrets.
 LocalDotEnvLoader.TryLoad();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,8 +36,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description =
             "REST API for conversations and messages. Real-time chat uses SignalR at /hubs/chat. " +
-            "LLM replies use a local Ollama server (free, no cloud API keys). " +
-            "Install from https://ollama.com — see README."
+            "LLM replies use Google Gemini via the backend API. See README for Gemini__ApiKey setup."
     });
 });
 
@@ -66,6 +65,13 @@ if (conn.StartsWith("{{", StringComparison.Ordinal))
 
 PostgresConnectionStringLogging.ThrowIfNotNpgsqlConnectionString(conn);
 NpgsqlSupabaseConnection.ThrowIfPoolerNeedsTenantUsername(conn);
+if (NpgsqlSupabaseConnection.ShouldSwitchTransactionPoolerToSession(conn))
+{
+    var dbLog = LoggerFactory.Create(static b => b.AddSimpleConsole(o => o.SingleLine = true))
+        .CreateLogger("Database");
+    dbLog.LogWarning(
+        "Supabase transaction pooler (6543) detected; switching to session pooler port 5432 automatically for stability.");
+}
 conn = NpgsqlSupabaseConnection.PrepareConnectionString(conn);
 PostgresConnectionStringLogging.ThrowIfProductionUsesLocalOnlyHost(builder.Environment, conn);
 
@@ -86,11 +92,11 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 });
 
 builder.Services
-    .AddOptions<OllamaOptions>()
-    .Bind(builder.Configuration.GetSection(OllamaOptions.SectionName));
+    .AddOptions<GeminiOptions>()
+    .Bind(builder.Configuration.GetSection(GeminiOptions.SectionName));
 
 builder.Services
-    .AddHttpClient<ILlmClient, OllamaLlmClient>()
+    .AddHttpClient<ILlmClient, GeminiLlmClient>()
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -100,18 +106,9 @@ builder.Services
     })
     .ConfigureHttpClient((sp, client) =>
     {
-        var opts = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
+        var opts = sp.GetRequiredService<IOptions<GeminiOptions>>().Value;
         client.BaseAddress = opts.ResolveBaseUri();
         client.Timeout = TimeSpan.FromMinutes(5);
-    });
-
-builder.Services
-    .AddHttpClient("OllamaHealth")
-    .ConfigureHttpClient((sp, client) =>
-    {
-        var opts = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
-        client.BaseAddress = opts.ResolveBaseUri();
-        client.Timeout = TimeSpan.FromSeconds(30);
     });
 
 builder.Services.AddSingleton<ChatGenerationCancellationRegistry>();
@@ -125,6 +122,7 @@ builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection(G
 builder.Services.Configure<PasswordResetOptions>(builder.Configuration.GetSection(PasswordResetOptions.SectionName));
 
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddScoped<AuthAccountService>();
 builder.Services.AddScoped<OtpAuthService>();
 builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddSingleton<IMailSender, SmtpMailSender>();
@@ -135,7 +133,14 @@ var jwtOpts = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOp
 if (string.IsNullOrWhiteSpace(jwtOpts.SigningKey) || jwtOpts.SigningKey.Length < 32)
     throw new InvalidOperationException("Jwt:SigningKey must be at least 32 characters.");
 
+static string CleanCredential(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+        ? string.Empty
+        : new string(value.Where(c => !char.IsWhiteSpace(c)).ToArray());
+
 var googleOpts = builder.Configuration.GetSection(GoogleAuthOptions.SectionName).Get<GoogleAuthOptions>() ?? new();
+googleOpts.ClientId = CleanCredential(googleOpts.ClientId);
+googleOpts.ClientSecret = CleanCredential(googleOpts.ClientSecret);
 
 var authenticationBuilder = builder.Services.AddAuthentication(options =>
 {
@@ -203,13 +208,31 @@ var app = builder.Build();
 
 {
     var emailLog = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Email");
+    var smtpUser = builder.Configuration["Email:SmtpUser"];
     var smtpPwd = builder.Configuration["Email:SmtpPassword"];
-    if (string.IsNullOrWhiteSpace(smtpPwd))
+    var smtpHost = builder.Configuration["Email:SmtpHost"] ?? "smtp.gmail.com";
+    var smtpPort = builder.Configuration["Email:SmtpPort"] ?? "587";
+    var normalizedSmtpPwd = string.IsNullOrWhiteSpace(smtpPwd)
+        ? string.Empty
+        : SmtpMailSender.NormalizePasswordForHost(smtpHost, smtpPwd);
+    if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPwd))
     {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(smtpUser)) missing.Add("Email__SmtpUser");
+        if (string.IsNullOrWhiteSpace(smtpPwd)) missing.Add("Email__SmtpPassword");
         emailLog.LogWarning(
-            "Email:SmtpPassword is empty. Gmail requires a 16-character App Password (Google Account → Security → App passwords), not your normal Gmail password. " +
-            "Set with: dotnet user-secrets set \"Email:SmtpPassword\" \"YOUR_APP_PASSWORD\" (and set Email:SmtpUser / Email:FromAddress to your Gmail). " +
-            "In Development, OTPs are logged to the console when SMTP is not configured.");
+            "SMTP is not fully configured. Missing: {Missing}. OTP and forgot-password emails cannot be delivered until these variables are set. " +
+            "For Gmail, use a 16-character App Password (Google Account → Security → App passwords) for Email__SmtpPassword.",
+            string.Join(", ", missing));
+    }
+    else
+    {
+        emailLog.LogInformation(
+            "SMTP configuration detected. Host={Host}; Port={Port}; User={User}; NormalizedPasswordLength={PasswordLength}.",
+            smtpHost,
+            smtpPort,
+            SmtpMailSender.MaskEmail(smtpUser),
+            normalizedSmtpPwd.Length);
     }
 }
 
@@ -221,7 +244,7 @@ if (app.Environment.IsDevelopment())
     {
         var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("GoogleOAuth");
         log.LogInformation(
-            "Google sign-in is not configured. Set GoogleCredentials__ClientId and GoogleCredentials__ClientSecret in .env (see .env.example) or environment variables. " +
+            "Google sign-in is not configured. Set Google__ClientId and Google__ClientSecret in .env (see .env.example) or environment variables. " +
             "Authorized redirect URI in Google Cloud: http://localhost:5292/signin-google");
     }
 }

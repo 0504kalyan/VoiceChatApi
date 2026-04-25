@@ -7,6 +7,13 @@ namespace VoiceChat.Api.Infrastructure;
 /// </summary>
 public static class NpgsqlSupabaseConnection
 {
+    public static bool ShouldSwitchTransactionPoolerToSession(string connectionString)
+    {
+        var b = new NpgsqlConnectionStringBuilder(connectionString);
+        var host = b.Host ?? string.Empty;
+        return host.Contains("pooler.supabase.com", StringComparison.OrdinalIgnoreCase) && b.Port == 6543;
+    }
+
     /// <summary>
     /// Disables GSS/Kerberos so slim Linux container images do not require libgssapi_krb5. Supabase uses SCRAM password auth.
     /// </summary>
@@ -14,8 +21,14 @@ public static class NpgsqlSupabaseConnection
     {
         var b = new NpgsqlConnectionStringBuilder(connectionString)
         {
-            GssEncryptionMode = GssEncryptionMode.Disable
+            GssEncryptionMode = GssEncryptionMode.Disable,
+            Timeout = 15,
+            CommandTimeout = 30,
+            KeepAlive = 30,
+            TcpKeepAlive = true
         };
+        if ((b.Host ?? string.Empty).Contains("pooler.supabase.com", StringComparison.OrdinalIgnoreCase) && b.Port == 6543)
+            b.Port = 5432;
         return b.ConnectionString;
     }
 

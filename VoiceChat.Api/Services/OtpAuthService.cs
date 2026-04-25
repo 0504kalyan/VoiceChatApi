@@ -81,6 +81,39 @@ public class OtpAuthService(
             await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Validates registration OTP without consuming it, so UI can unlock password fields first.
+    /// </summary>
+    public async Task<(bool ok, string? error)> ValidateRegisterOtpAsync(
+        string normalizedEmail,
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        var row = await db.OtpVerifications
+            .Where(x => x.NormalizedEmail == normalizedEmail && x.Purpose == OtpPurpose.Register && x.ConsumedAt == null)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+            return (false, "No active verification code. Request a new one.");
+
+        if (row.ExpiresAt < DateTimeOffset.UtcNow)
+            return (false, "This code has expired. Request a new one.");
+
+        if (row.FailedAttemptCount >= 5)
+            return (false, "Too many attempts. Request a new code.");
+
+        var expected = Hash(code.Trim(), normalizedEmail, Pepper);
+        if (!ConstantTimeHexEquals(expected, row.CodeHash))
+        {
+            row.FailedAttemptCount++;
+            await db.SaveChangesAsync(cancellationToken);
+            return (false, "Invalid code.");
+        }
+
+        return (true, null);
+    }
+
     public async Task<(bool ok, string? error)> VerifyRegisterOtpAsync(
         string normalizedEmail,
         string code,

@@ -47,47 +47,54 @@ public class PasswordResetService(
             return;
         }
 
-        var stale = await db.PasswordResetTokens
-            .Where(t => t.UserId == user.Id && t.UsedAt == null)
-            .ToListAsync(cancellationToken);
-        foreach (var t in stale)
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            t.UsedAt = DateTimeOffset.UtcNow;
-            t.IsActive = false;
-        }
-        if (stale.Count > 0)
+            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            var stale = await db.PasswordResetTokens
+                .Where(t => t.UserId == user.Id && t.UsedAt == null)
+                .ToListAsync(cancellationToken);
+            foreach (var t in stale)
+            {
+                t.UsedAt = DateTimeOffset.UtcNow;
+                t.IsActive = false;
+            }
+            if (stale.Count > 0)
+                await db.SaveChangesAsync(cancellationToken);
+
+            var rawBytes = RandomNumberGenerator.GetBytes(32);
+            var rawToken = Convert.ToHexString(rawBytes);
+            var tokenHash = HashRawToken(rawToken, Pepper);
+
+            var row = new PasswordResetToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                TokenHash = tokenHash,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(Math.Max(15, _reset.ExpiryMinutes)),
+                IsActive = true
+            };
+            db.PasswordResetTokens.Add(row);
             await db.SaveChangesAsync(cancellationToken);
 
-        var rawBytes = RandomNumberGenerator.GetBytes(32);
-        var rawToken = Convert.ToHexString(rawBytes);
-        var tokenHash = HashRawToken(rawToken, Pepper);
+            var baseUrl = publicOrigin.TrimEnd('/');
+            var link =
+                $"{baseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}&email={Uri.EscapeDataString(normalizedEmail)}";
 
-        var row = new PasswordResetToken
-        {
-            Id = Guid.NewGuid(),
-            UserId = user.Id,
-            TokenHash = tokenHash,
-            CreatedAt = DateTimeOffset.UtcNow,
-            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(Math.Max(15, _reset.ExpiryMinutes)),
-            IsActive = true
-        };
-        db.PasswordResetTokens.Add(row);
-        await db.SaveChangesAsync(cancellationToken);
+            var body = $"""
+                        You requested a password reset for VoiceChat.
 
-        var baseUrl = publicOrigin.TrimEnd('/');
-        var link =
-            $"{baseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}&email={Uri.EscapeDataString(normalizedEmail)}";
+                        Open this link to choose a new password (valid for {_reset.ExpiryMinutes} minutes):
+                        {link}
 
-        var body = $"""
-                    You requested a password reset for VoiceChat.
+                        If you did not request this, you can ignore this email.
+                        """;
 
-                    Open this link to choose a new password (valid for {_reset.ExpiryMinutes} minutes):
-                    {link}
-
-                    If you did not request this, you can ignore this email.
-                    """;
-
-        await mail.SendAsync(user.Email!, "Reset your VoiceChat password", body, cancellationToken);
+            await mail.SendAsync(user.Email!, "Reset your VoiceChat password", body, cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        });
         log.LogInformation("Password reset email sent for user {UserId}.", user.Id);
     }
 
@@ -118,10 +125,16 @@ public class PasswordResetService(
         if (row is null)
             return (false, "Invalid or expired reset link.");
 
-        user.PasswordHash = passwordHasher.HashPassword(user, newPassword);
-        row.UsedAt = DateTimeOffset.UtcNow;
-        row.IsActive = false;
-        await db.SaveChangesAsync(cancellationToken);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+            user.PasswordHash = passwordHasher.HashPassword(user, newPassword);
+            row.UsedAt = DateTimeOffset.UtcNow;
+            row.IsActive = false;
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        });
         return (true, null);
     }
 }

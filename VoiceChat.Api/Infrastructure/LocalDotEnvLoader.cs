@@ -60,7 +60,7 @@ public static class ConfigurationPlaceholderExpander
 /// <summary>
 /// Loads a <c>.env</c> file into the process environment before <see cref="WebApplication.CreateBuilder(string[])"/>.
 /// Skips blank values so an empty <c>KEY=</c> line does not clear keys already set by the host.
-/// Runs when a candidate <c>.env</c> file exists (git-ignored). Use the same names as process environment variables (e.g. <c>GoogleCredentials__ClientId</c>).
+/// Runs when a candidate <c>.env</c> file exists (git-ignored). Use the same names as process environment variables (e.g. <c>Google__ClientId</c>).
 /// </summary>
 public static class LocalDotEnvLoader
 {

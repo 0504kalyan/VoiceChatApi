@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -10,69 +9,54 @@ namespace VoiceChat.Api.Controllers;
 [AllowAnonymous]
 [ApiController]
 [Route("api/[controller]")]
-public class HealthController(IHttpClientFactory httpClientFactory, IOptions<OllamaOptions> ollamaOptions) : ControllerBase
+public class HealthController(IOptions<GeminiOptions> geminiOptions) : ControllerBase
 {
     [HttpGet]
     public IActionResult Get() => Ok(new { status = "ok", time = DateTimeOffset.UtcNow });
 
-    /// <summary>Local Ollama LLM — no paid cloud API.</summary>
+    /// <summary>Configured Gemini LLM provider.</summary>
     [HttpGet("llm")]
     public IActionResult Llm()
     {
-        var opts = ollamaOptions.Value;
-        var baseUrl = opts.BaseUrl?.Trim().Length > 0 ? opts.BaseUrl.Trim() : OllamaOptions.DefaultLocalBaseUrl.TrimEnd('/');
+        var opts = geminiOptions.Value;
         return Ok(new
         {
-            provider = "Ollama",
+            provider = "Gemini",
             defaultModel = LlmRuntime.DefaultChatModel(opts),
-            baseUrl,
+            baseUrl = opts.ResolveBaseUri().ToString().TrimEnd('/'),
+            configured = !string.IsNullOrWhiteSpace(opts.ApiKey),
+            models = GetConfiguredModels(opts),
             hint =
-                "Install Ollama from https://ollama.com, run ollama pull <model>, then chat. " +
-                "GET /api/health/ollama/models lists pulled models."
+                "Set Gemini__ApiKey on the API server. GET /api/health/gemini/models lists configured model choices."
         });
     }
 
-    /// <summary>Lists model names available on your Ollama server (same as <c>ollama list</c>).</summary>
-    [HttpGet("ollama/models")]
-    public async Task<IActionResult> OllamaModels(CancellationToken cancellationToken)
+    /// <summary>Lists Gemini model names configured for the UI dropdown.</summary>
+    [HttpGet("gemini/models")]
+    public IActionResult GeminiModels()
     {
-        var client = httpClientFactory.CreateClient("OllamaHealth");
-        try
+        var opts = geminiOptions.Value;
+        return Ok(new
         {
-            using var response = await client.GetAsync("api/tags", cancellationToken);
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return Ok(new
-                {
-                    ok = false,
-                    statusCode = (int)response.StatusCode,
-                    message = json
-                });
-            }
+            ok = true,
+            defaultModel = LlmRuntime.DefaultChatModel(opts),
+            models = GetConfiguredModels(opts)
+        });
+    }
 
-            var names = new List<string>();
-            using (var doc = JsonDocument.Parse(json))
-            {
-                if (doc.RootElement.TryGetProperty("models", out var models))
-                {
-                    foreach (var m in models.EnumerateArray())
-                    {
-                        if (m.TryGetProperty("name", out var nameEl))
-                        {
-                            var n = nameEl.GetString();
-                            if (!string.IsNullOrEmpty(n))
-                                names.Add(n);
-                        }
-                    }
-                }
-            }
+    private static IReadOnlyList<string> GetConfiguredModels(GeminiOptions opts)
+    {
+        var models = opts.AvailableModels
+            .Select(m => LlmRuntime.NormalizeChatModel(m, opts))
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-            return Ok(new { ok = true, models = names });
-        }
-        catch (Exception ex)
-        {
-            return Ok(new { ok = false, error = ex.Message });
-        }
+        var fallback = LlmRuntime.DefaultChatModel(opts);
+        if (!models.Contains(fallback, StringComparer.OrdinalIgnoreCase))
+            models.Insert(0, fallback);
+
+        return models;
     }
 }

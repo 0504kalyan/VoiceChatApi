@@ -6,7 +6,7 @@ public class Conversation
     public Guid UserId { get; set; }
     public User User { get; set; } = null!;
     public string? Title { get; set; }
-    public string Model { get; set; } = "llama3.2";
+    public string Model { get; set; } = "gemini-2.5-flash";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

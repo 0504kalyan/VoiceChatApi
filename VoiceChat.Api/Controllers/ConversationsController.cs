@@ -15,19 +15,27 @@ namespace VoiceChat.Api.Controllers;
 [Route("api/[controller]")]
 public class ConversationsController(
     AppDbContext db,
-    IOptions<OllamaOptions> ollamaOptions,
+    IOptions<GeminiOptions> geminiOptions,
     ChatGenerationCancellationRegistry generationCancellation) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ConversationListItemDto>>> List(CancellationToken cancellationToken)
     {
         var userId = User.RequireUserId();
-        var list = await db.Conversations
+        var rows = await db.Conversations
             .AsNoTracking()
             .Where(c => c.UserId == userId)
             .OrderByDescending(c => c.UpdatedAt)
-            .Select(c => new ConversationListItemDto(c.Id, c.Title, c.Model, c.UpdatedAt))
+            .Select(c => new { c.Id, c.Title, c.Model, c.UpdatedAt })
             .ToListAsync(cancellationToken);
+        var list = rows
+            .Select(c => new ConversationListItemDto(
+                c.Id,
+                c.Title,
+                LlmRuntime.NormalizeChatModel(c.Model, geminiOptions.Value) ??
+                LlmRuntime.DefaultChatModel(geminiOptions.Value),
+                c.UpdatedAt))
+            .ToList();
         return Ok(list);
     }
 
@@ -43,9 +51,8 @@ public class ConversationsController(
             Id = Guid.NewGuid(),
             UserId = userId,
             Title = body?.Title,
-            Model = string.IsNullOrWhiteSpace(body?.Model)
-                ? LlmRuntime.DefaultChatModel(ollamaOptions.Value)
-                : body.Model.Trim(),
+            Model = LlmRuntime.NormalizeChatModel(body?.Model, geminiOptions.Value) ??
+                    LlmRuntime.DefaultChatModel(geminiOptions.Value),
             CreatedAt = now,
             UpdatedAt = now,
             IsActive = true
@@ -71,7 +78,8 @@ public class ConversationsController(
 
         if (body is not null && !string.IsNullOrWhiteSpace(body.Model))
         {
-            conv.Model = body.Model.Trim();
+            conv.Model = LlmRuntime.NormalizeChatModel(body.Model, geminiOptions.Value) ??
+                         LlmRuntime.DefaultChatModel(geminiOptions.Value);
             if (conv.Model.Length > 100)
                 return BadRequest(new { message = "Model name is too long." });
         }

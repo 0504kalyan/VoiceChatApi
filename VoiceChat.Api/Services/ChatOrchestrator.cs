@@ -12,7 +12,7 @@ namespace VoiceChat.Api.Services;
 public class ChatOrchestrator(
     AppDbContext db,
     ILlmClient llm,
-    IOptions<OllamaOptions> ollamaOptions,
+    IOptions<GeminiOptions> geminiOptions,
     ILogger<ChatOrchestrator> logger) : IChatOrchestrator
 {
     private static readonly JsonSerializerOptions JsonArchiveOptions = new()
@@ -34,6 +34,11 @@ public class ChatOrchestrator(
         if (conversation is null)
             throw new InvalidOperationException("Conversation not found.");
 
+        var activeModel = LlmRuntime.NormalizeChatModel(conversation.Model, geminiOptions.Value)
+            ?? LlmRuntime.DefaultChatModel(geminiOptions.Value);
+        if (!string.Equals(conversation.Model, activeModel, StringComparison.Ordinal))
+            conversation.Model = activeModel;
+
         var userMessage = new Message
         {
             Id = Guid.NewGuid(),
@@ -46,7 +51,7 @@ public class ChatOrchestrator(
         db.Messages.Add(userMessage);
         await db.SaveChangesAsync(cancellationToken);
 
-        var maxHistory = Math.Max(4, ollamaOptions.Value.MaxHistoryMessages);
+        var maxHistory = Math.Max(4, geminiOptions.Value.MaxHistoryMessages);
         // Newest N messages only — avoids loading entire threads before the first model token.
         // Omit assistant messages that were cut off by "Stop" — they confuse the model and add tokens for the next turn.
         var rows = await db.Messages
@@ -61,7 +66,7 @@ public class ChatOrchestrator(
         var history = rows.Select(r => (r.Role, r.Content)).ToList();
 
         var messagesForLlm = new List<(string Role, string Content)>();
-        var system = ollamaOptions.Value.SystemPrompt?.Trim();
+        var system = geminiOptions.Value.SystemPrompt?.Trim();
         if (!string.IsNullOrEmpty(system))
             messagesForLlm.Add(("system", system));
         messagesForLlm.AddRange(history);
@@ -69,7 +74,7 @@ public class ChatOrchestrator(
         var buffer = new System.Text.StringBuilder();
         string? recoveryFallback = null;
 
-        await using var enumerator = llm.StreamChatAsync(conversation.Model, messagesForLlm, cancellationToken)
+        await using var enumerator = llm.StreamChatAsync(activeModel, messagesForLlm, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         while (true)
@@ -171,7 +176,7 @@ public class ChatOrchestrator(
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // Stopped early: use a quick title only — skip the extra LLM title call so Ollama is free for the user's next prompt.
+        // Stopped early: use a quick title only and skip the extra LLM title call.
         if (string.IsNullOrWhiteSpace(conversation.Title))
         {
             if (stoppedEarly)
@@ -209,7 +214,9 @@ public class ChatOrchestrator(
                 )
             };
 
-            var generated = await llm.CompleteChatNonStreamingAsync(conversation.Model, titlePrompt, cancellationToken);
+            var model = LlmRuntime.NormalizeChatModel(conversation.Model, geminiOptions.Value)
+                ?? LlmRuntime.DefaultChatModel(geminiOptions.Value);
+            var generated = await llm.CompleteChatNonStreamingAsync(model, titlePrompt, cancellationToken);
             var cleaned = SanitizeGeneratedTitle(generated);
             conversation.Title = !string.IsNullOrWhiteSpace(cleaned) ? cleaned : fallback;
         }

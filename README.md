@@ -1,6 +1,6 @@
 # VoiceChat
 
-Angular + .NET AI chat with optional browser speech (Web Speech API). The backend uses **[Ollama](https://ollama.com)** for LLM replies — **runs locally, no paid cloud LLM API** (no OpenAI billing).
+Angular + .NET AI chat with optional browser speech (Web Speech API). The backend uses **Google Gemini** for LLM replies through the .NET API.
 
 ## Repository layout
 
@@ -8,7 +8,7 @@ Projects are **siblings at the repository root** (not under `src/`):
 
 | Folder | Description |
 |--------|--------------|
-| **`VoiceChat.Api/`** | ASP.NET Core, EF Core, SignalR `ChatHub`, `ILlmClient` → local **Ollama** (`/api/chat`). **Docker:** repo-root [`Dockerfile`](../Dockerfile) (context `.`) or [`Api/Dockerfile`](Dockerfile) (context `Api`). Local compose: [`Api/docker-compose.yml`](docker-compose.yml). |
+| **`VoiceChat.Api/`** | ASP.NET Core, EF Core, SignalR `ChatHub`, `ILlmClient` → **Gemini Developer API**. **Docker:** repo-root [`Dockerfile`](../Dockerfile) (context `.`) or [`Api/Dockerfile`](Dockerfile) (context `Api`). Local compose: [`Api/docker-compose.yml`](docker-compose.yml). |
 | **`VoiceChat.Web/`** | Angular UI, `@microsoft/signalr`, voice input via the browser |
 | **`docs/`** | Architecture notes (`VoiceChat.Api.md`, `VoiceChat.Web.md`) |
 | **`VoiceChat.sln`** | **Visual Studio solution** (classic `.sln`) — open this file to load the API project |
@@ -22,24 +22,82 @@ If you still have an old **`src/`** folder with duplicate projects (from before 
 
 ---
 
-## AI backend (Ollama — free local models)
+## AI backend (Gemini Flash)
 
-1. **Install [Ollama](https://ollama.com)** for your OS and start it (it listens on `http://localhost:11434` by default).
+1. Create an API key in [Google AI Studio](https://aistudio.google.com/app/apikey).
 
-2. **Pull at least one model** (pick any from the [model library](https://ollama.com/library)):
+2. Set the key on the API only. Do not put it in Angular/browser files.
 
-```bash
-ollama pull llama3.2
+```powershell
+dotnet user-secrets set "Gemini:ApiKey" "<your Gemini API key>" --project VoiceChat.Api/VoiceChat.Api.csproj
 ```
 
-The default in `appsettings.json` is **`llama3.2`**. Change **`Ollama:DefaultModel`** to match what you pulled (e.g. `phi3`, `mistral`, `gemma2`).
+For hosted deployments, set:
 
-3. **Optional configuration** (`VoiceChat.Api/appsettings.json` or environment variables `Ollama__BaseUrl`, `Ollama__DefaultModel`):
+```text
+Gemini__ApiKey=<your Gemini API key>
+Gemini__DefaultModel=gemini-2.5-flash
+```
 
-- **`Ollama:BaseUrl`** — if Ollama runs on another machine or port (default `http://localhost:11434/`).
-- **`Ollama:DefaultModel`** — default tag for new chats.
+3. Model choices configured in `appsettings.json`:
 
-4. **Check the API**: `GET /api/health/llm` shows the active defaults; `GET /api/health/ollama/models` lists models Ollama has available (like `ollama list`).
+- **`gemini-2.5-flash`** — recommended default; strong price/performance.
+- **`gemini-2.5-flash-lite`** — lower cost/latency for simpler chats.
+- **`gemini-2.5-pro`** — stronger reasoning/coding, higher cost.
+- **`gemini-2.0-flash`** — older Flash alias; keep only if your key/account still supports it.
+
+4. Optional configuration (`VoiceChat.Api/appsettings.json` or environment variables):
+
+- **`Gemini:DefaultModel`** / **`Gemini__DefaultModel`** — default model for new chats.
+- **`Gemini:MaxOutputTokens`** / **`Gemini__MaxOutputTokens`** — maximum generated output tokens.
+- **`Gemini:MaxHistoryMessages`** / **`Gemini__MaxHistoryMessages`** — number of latest messages sent as context.
+- **`Gemini:AvailableModels`** / **`Gemini__AvailableModels__0`** etc. — model dropdown entries.
+
+5. Check the API: `GET /api/health/llm` shows the active defaults; `GET /api/health/gemini/models` lists configured model choices.
+
+### Render environment variables
+
+Set these in Render → your API service → **Environment**:
+
+```text
+ASPNETCORE_ENVIRONMENT=Production
+PORT=10000
+
+SupabaseCredentials__ConnectionString=<your full PostgreSQL/Npgsql connection string>
+
+Jwt__SigningKey=<random string at least 32 characters>
+Jwt__Issuer=VoiceChat.Api
+Jwt__Audience=VoiceChat.Web
+Jwt__ExpiryMinutes=10080
+
+Gemini__ApiKey=<your Gemini API key>
+Gemini__DefaultModel=gemini-2.5-flash
+Gemini__MaxOutputTokens=2048
+Gemini__MaxHistoryMessages=16
+Gemini__AvailableModels__0=gemini-2.5-flash
+Gemini__AvailableModels__1=gemini-2.5-flash-lite
+Gemini__AvailableModels__2=gemini-2.5-pro
+Gemini__AvailableModels__3=gemini-2.0-flash
+
+Email__SmtpHost=smtp.gmail.com
+Email__SmtpPort=587
+Email__UseSsl=true
+Email__SmtpUser=<your Gmail address>
+Email__SmtpPassword=<your 16-character Gmail App Password>
+Email__FromAddress=<your Gmail address>
+Email__FromName=ChatAI
+
+Google__ClientId=<Google OAuth web client ID>
+Google__ClientSecret=<Google OAuth client secret>
+
+WebClient__PublicOrigin=<your deployed Angular app origin>
+Cors__Origins__0=<your deployed Angular app origin>
+
+Otp__ExpiryMinutes=10
+PasswordReset__ExpiryMinutes=60
+```
+
+`SupabaseCredentials__ConnectionString` is enough for the database. Use `ConnectionStrings__DefaultConnection` only if you prefer that name instead.
 
 ### Data & UI notes
 
@@ -64,7 +122,7 @@ The default in `appsettings.json` is **`llama3.2`**. Change **`Ollama:DefaultMod
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Node.js](https://nodejs.org/) (LTS)
-- **[Ollama](https://ollama.com)** with at least one model pulled
+- Gemini API key from Google AI Studio
 
 ## Run the API
 
@@ -80,7 +138,7 @@ With `dotnet run` or Visual Studio **F5**, the browser opens **Swagger UI** at `
 ### Google sign-in (optional)
 
 1. Copy **`VoiceChat.Api/.env.example`** to **`.env`** in the same folder (`.env` is git-ignored).
-2. Set **`GoogleCredentials__ClientId`** and **`GoogleCredentials__ClientSecret`** from [Google Cloud Console](https://console.cloud.google.com/) (OAuth 2.0 Client IDs, Web application).
+2. Set **`Google__ClientId`** and **`Google__ClientSecret`** from [Google Cloud Console](https://console.cloud.google.com/) (OAuth 2.0 Client IDs, Web application).
 3. Add **Authorized redirect URI**: `http://localhost:5292/signin-google`.
 4. Restart the API. In Development, `appsettings.json` uses placeholders `{{GoogleCredentials:ClientId}}` / `{{GoogleCredentials:ClientSecret}}` — real values come from `.env` or environment variables only; do not commit secrets.
 

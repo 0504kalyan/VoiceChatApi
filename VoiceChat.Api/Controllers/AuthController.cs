@@ -18,7 +18,7 @@ namespace VoiceChat.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 public class AuthController(
-    AppDbContext db,
+    AuthAccountService accounts,
     OtpAuthService otp,
     PasswordResetService passwordReset,
     IPasswordHasher<User> passwordHasher,
@@ -27,12 +27,53 @@ public class AuthController(
     ILogger<AuthController> log) : ControllerBase
 {
     private readonly WebClientOptions _web = webOptions.Value;
-    private readonly GoogleAuthOptions _google = googleOptions.Value;
+    private readonly GoogleAuthOptions _google = NormalizeGoogleOptions(googleOptions.Value);
 
     private string ResolvePublicOrigin() => WebOriginResolver.ResolvePublicOrigin(Request, _web.PublicOrigin);
 
+    private static GoogleAuthOptions NormalizeGoogleOptions(GoogleAuthOptions options) =>
+        new()
+        {
+            ClientId = CleanCredential(options.ClientId),
+            ClientSecret = CleanCredential(options.ClientSecret)
+        };
+
+    private static string CleanCredential(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : new string(value.Where(c => !char.IsWhiteSpace(c)).ToArray());
+
     [HttpGet("ping")]
     public IActionResult Ping() => Ok(new { ok = true, message = "Auth API is running." });
+
+    [HttpGet("email/status")]
+    public IActionResult EmailStatus([FromServices] IOptions<EmailOptions> emailOptions)
+    {
+        var email = emailOptions.Value;
+        var password = string.IsNullOrWhiteSpace(email.SmtpPassword)
+            ? string.Empty
+            : SmtpMailSender.NormalizePasswordForHost(email.SmtpHost, email.SmtpPassword);
+
+        return Ok(new
+        {
+            configured = !string.IsNullOrWhiteSpace(email.SmtpUser) && !string.IsNullOrWhiteSpace(email.SmtpPassword),
+            host = email.SmtpHost,
+            port = email.SmtpPort,
+            useSsl = email.UseSsl,
+            smtpUser = SmtpMailSender.MaskEmail(email.SmtpUser),
+            fromAddress = SmtpMailSender.MaskEmail(string.IsNullOrWhiteSpace(email.FromAddress) ? email.SmtpUser : email.FromAddress),
+            passwordConfigured = !string.IsNullOrWhiteSpace(email.SmtpPassword),
+            normalizedPasswordLength = password.Length,
+            gmailAppPasswordLengthOk = email.SmtpHost.Contains("gmail", StringComparison.OrdinalIgnoreCase) && password.Length == 16,
+            expectedForGmail = new
+            {
+                host = "smtp.gmail.com",
+                port = 587,
+                useSsl = true,
+                appPasswordLength = 16
+            }
+        });
+    }
 
     /// <summary>Creates or reuses a pending user, then sends a registration OTP (always linked to <c>UserId</c>).</summary>
     [HttpPost("register/send-otp")]
@@ -43,32 +84,11 @@ public class AuthController(
             return BadRequest(new { message = "Use a Gmail address (@gmail.com or @googlemail.com)." });
 
         var norm = GmailAddress.Normalize(body.Email);
-        User? pending;
         try
         {
-            if (await db.Users.AnyAsync(u => u.NormalizedEmail == norm && u.EmailConfirmed, cancellationToken))
-                return Conflict(new { message = "This email is already registered. Sign in instead." });
-
-            pending = await db.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == norm, cancellationToken);
-            if (pending is { EmailConfirmed: true })
-                return Conflict(new { message = "This email is already registered." });
-
-            if (pending is null)
-            {
-                pending = new User
-                {
-                    Id = Guid.NewGuid(),
-                    ExternalId = $"pending:{Guid.NewGuid():N}",
-                    Email = norm,
-                    NormalizedEmail = norm,
-                    EmailConfirmed = false,
-                    DisplayName = norm.Split('@')[0],
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    IsActive = true
-                };
-                db.Users.Add(pending);
-                await db.SaveChangesAsync(cancellationToken);
-            }
+            var (ok, err) = await accounts.CreatePendingUserAndSendOtpAsync(norm, cancellationToken);
+            if (!ok)
+                return Conflict(new { message = err });
         }
         catch (Exception ex) when (ex is NpgsqlException || ex is TimeoutException || ex is DbUpdateException)
         {
@@ -80,21 +100,32 @@ public class AuthController(
             });
         }
 
-        try
-        {
-            await otp.SendRegisterOtpAsync(pending.Id, norm, cancellationToken);
-        }
         catch (Exception ex)
         {
             log.LogError(ex, "Failed to send registration OTP email to {Email}.", norm);
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 message =
-                    "Could not send the verification email. Gmail no longer accepts your normal password for SMTP: create a 16-character App Password (Google Account → Security → 2-Step Verification → App passwords) and set Email:SmtpPassword on the API. See https://support.google.com/mail/?p=BadCredentials"
+                    "Could not send the verification email. Gmail rejected the SMTP login. Verify /api/auth/email/status, then ensure Email__SmtpUser is the same Gmail account that generated Email__SmtpPassword (16-character App Password)."
             });
         }
 
         return Ok(new { message = "If the address is valid, a verification code was sent." });
+    }
+
+    [HttpPost("register/validate-otp")]
+    public async Task<IActionResult> RegisterValidateOtp([FromBody] ValidateOtpRequest body,
+        CancellationToken cancellationToken)
+    {
+        if (!GmailAddress.IsAllowedGmail(body.Email))
+            return BadRequest(new { message = "Invalid email." });
+
+        var norm = GmailAddress.Normalize(body.Email);
+        var (ok, err) = await otp.ValidateRegisterOtpAsync(norm, body.Code, cancellationToken);
+        if (!ok)
+            return BadRequest(new { message = err });
+
+        return Ok(new { message = "OTP validated. You can now set your password." });
     }
 
     [HttpPost("register/complete")]
@@ -108,23 +139,15 @@ public class AuthController(
             return BadRequest(new { message = pwdErr });
 
         var norm = GmailAddress.Normalize(body.Email);
-        var (ok, err) = await otp.VerifyRegisterOtpAsync(norm, body.Code, cancellationToken);
-        if (!ok)
+        var (response, err) = await accounts.CompleteRegistrationAsync(
+            norm,
+            body.Code,
+            body.Password,
+            cancellationToken);
+        if (response is null)
             return BadRequest(new { message = err });
 
-        var user = await db.Users.FirstOrDefaultAsync(
-            u => u.NormalizedEmail == norm && !u.EmailConfirmed,
-            cancellationToken);
-        if (user is null)
-            return BadRequest(new { message = "No pending registration for this email. Request a new code." });
-
-        user.PasswordHash = passwordHasher.HashPassword(user, body.Password);
-        user.EmailConfirmed = true;
-        user.ExternalId = $"email:{norm}";
-        await db.SaveChangesAsync(cancellationToken);
-
-        var token = otp.IssueJwtForUser(user.Id, user.Email!);
-        return Ok(new AuthResponseDto { AccessToken = token, Email = user.Email!, UserId = user.Id });
+        return Ok(response);
     }
 
     [HttpPost("forgot-password")]
@@ -142,7 +165,11 @@ public class AuthController(
         catch (Exception ex)
         {
             log.LogError(ex, "Failed to send password reset email.");
-            return StatusCode(500, new { message = "Could not send email. Verify Email SMTP settings on the API." });
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message =
+                    "Could not send reset email. Configure Email__SmtpUser and Email__SmtpPassword (Gmail App Password) in environment variables."
+            });
         }
 
         return Ok(new { message = "If an account exists with that email, a reset link was sent." });
@@ -180,9 +207,10 @@ public class AuthController(
         return Ok(new
         {
             configured = _google.IsConfigured,
+            clientIdLooksValid = _google.HasValidClientIdShape,
             authorizedRedirectUri,
             hint =
-                "If Google shows redirect_uri_mismatch, add authorizedRedirectUri exactly (and both http/https + ports if you use more than one)."
+                "Google client id must end with .apps.googleusercontent.com. If Google shows redirect_uri_mismatch, add authorizedRedirectUri exactly."
         });
     }
 
@@ -193,35 +221,11 @@ public class AuthController(
             return BadRequest(new { message = "Use a Gmail address (@gmail.com or @googlemail.com)." });
 
         var norm = GmailAddress.Normalize(body.Email);
-        var user = await db.Users.FirstOrDefaultAsync(
-            u => u.NormalizedEmail == norm && u.EmailConfirmed,
-            cancellationToken);
-
-        if (user is null || string.IsNullOrEmpty(user.PasswordHash))
+        var (response, _) = await accounts.LoginWithPasswordAsync(norm, body.Password, cancellationToken);
+        if (response is null)
             return Unauthorized(new { message = "Invalid email or password." });
 
-        PasswordVerificationResult verify;
-        try
-        {
-            verify = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, body.Password);
-        }
-        catch (Exception ex)
-        {
-            // Legacy/plain-text or corrupted hashes in old environments should not crash login.
-            log.LogWarning(ex, "Password hash verification failed for user {UserId}.", user.Id);
-            return Unauthorized(new { message = "Invalid email or password." });
-        }
-        if (verify is PasswordVerificationResult.Failed)
-            return Unauthorized(new { message = "Invalid email or password." });
-
-        if (verify is PasswordVerificationResult.SuccessRehashNeeded)
-        {
-            user.PasswordHash = passwordHasher.HashPassword(user, body.Password);
-            await db.SaveChangesAsync(cancellationToken);
-        }
-
-        var token = otp.IssueJwtForUser(user.Id, user.Email!);
-        return Ok(new AuthResponseDto { AccessToken = token, Email = user.Email!, UserId = user.Id });
+        return Ok(response);
     }
 
     [HttpGet("google")]
@@ -262,43 +266,11 @@ public class AuthController(
 
         var norm = GmailAddress.Normalize(email);
 
-        var user = await db.Users.FirstOrDefaultAsync(
-            u => u.GoogleSub == sub || u.NormalizedEmail == norm,
-            cancellationToken);
-
-        if (user is null)
-        {
-            user = new User
-            {
-                Id = Guid.NewGuid(),
-                ExternalId = $"google:{sub}",
-                GoogleSub = sub,
-                Email = norm,
-                NormalizedEmail = norm,
-                EmailConfirmed = true,
-                DisplayName = string.IsNullOrWhiteSpace(name) ? norm.Split('@')[0] : name,
-                CreatedAt = DateTimeOffset.UtcNow,
-                IsActive = true
-            };
-            db.Users.Add(user);
-        }
-        else
-        {
-            user.GoogleSub ??= sub;
-            user.Email = norm;
-            user.NormalizedEmail = norm;
-            user.EmailConfirmed = true;
-            if (user.ExternalId.StartsWith("pending:", StringComparison.OrdinalIgnoreCase))
-                user.ExternalId = $"google:{sub}";
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-
-        var token = otp.IssueJwtForUser(user.Id, user.Email!);
+        var auth = await accounts.UpsertGoogleUserAsync(norm, sub, name, cancellationToken);
         await HttpContext.SignOutAsync("External");
 
         var next =
-            $"{publicOrigin}/auth/google-callback?token={Uri.EscapeDataString(token)}";
+            $"{publicOrigin}/auth/google-callback?token={Uri.EscapeDataString(auth.AccessToken)}";
         return Redirect(next);
     }
 }

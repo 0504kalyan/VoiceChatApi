@@ -35,7 +35,7 @@ public class ChatHub(
     }
 
     /// <summary>
-    /// Returns immediately so the client can invoke <c>cancelGeneration</c> while Ollama is still streaming.
+    /// Returns immediately so the client can invoke <c>cancelGeneration</c> while Gemini is still streaming.
     /// (SignalR otherwise processes hub calls on the same connection one at a time.)
     /// </summary>
     public Task SendMessage(Guid conversationId, string content, string inputMode)
