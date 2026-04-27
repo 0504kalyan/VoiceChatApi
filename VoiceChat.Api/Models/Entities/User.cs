@@ -30,5 +30,9 @@ public class User
     public ICollection<OtpVerification> OtpVerifications { get; set; } = new List<OtpVerification>();
 
     public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();
+
+    public ICollection<IdeWorkspace> IdeWorkspaces { get; set; } = new List<IdeWorkspace>();
+
+    public ICollection<IdeFile> IdeFiles { get; set; } = new List<IdeFile>();
 }
 

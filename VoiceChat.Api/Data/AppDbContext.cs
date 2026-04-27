@@ -14,6 +14,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RequestResponseArchive> RequestResponseArchives => Set<RequestResponseArchive>();
     public DbSet<OtpVerification> OtpVerifications => Set<OtpVerification>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<IdeWorkspace> IdeWorkspaces => Set<IdeWorkspace>();
+    public DbSet<IdeFile> IdeFiles => Set<IdeFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +96,46 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(x => x.Conversation).WithMany(x => x.Messages).HasForeignKey(x => x.ConversationId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasQueryFilter(m => m.IsActive);
+        });
+
+        modelBuilder.Entity<IdeWorkspace>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.NormalizedName).HasMaxLength(200);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(x => new { x.UserId, x.UpdatedAt });
+            e.HasIndex(x => new { x.UserId, x.NormalizedName });
+            e.HasOne(x => x.User)
+                .WithMany(u => u.IdeWorkspaces)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasQueryFilter(w => w.IsActive);
+        });
+
+        modelBuilder.Entity<IdeFile>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Path).HasMaxLength(1024);
+            e.Property(x => x.NormalizedPath).HasMaxLength(1024);
+            e.Property(x => x.Language).HasMaxLength(80);
+            e.Property(x => x.Content).HasColumnType("text");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(x => new { x.UserId, x.WorkspaceId, x.NormalizedPath })
+                .IsUnique()
+                .HasFilter("\"is_active\" = TRUE");
+            e.HasIndex(x => new { x.WorkspaceId, x.UpdatedAt });
+            e.HasOne(x => x.User)
+                .WithMany(u => u.IdeFiles)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Workspace)
+                .WithMany(w => w.Files)
+                .HasForeignKey(x => x.WorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasQueryFilter(f => f.IsActive);
         });
     }
 }

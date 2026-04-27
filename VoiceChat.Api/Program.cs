@@ -100,7 +100,19 @@ builder.Services
     .Bind(builder.Configuration.GetSection(GeminiOptions.SectionName));
 
 builder.Services
-    .AddHttpClient<ILlmClient, GeminiLlmClient>()
+    .AddOptions<OpenAIOptions>()
+    .Bind(builder.Configuration.GetSection(OpenAIOptions.SectionName));
+
+builder.Services
+    .AddOptions<DeepSeekOptions>()
+    .Bind(builder.Configuration.GetSection(DeepSeekOptions.SectionName));
+
+builder.Services
+    .AddOptions<OllamaOptions>()
+    .Bind(builder.Configuration.GetSection(OllamaOptions.SectionName));
+
+builder.Services
+    .AddHttpClient<GeminiLlmClient>()
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
@@ -114,6 +126,19 @@ builder.Services
         client.BaseAddress = opts.ResolveBaseUri();
         client.Timeout = TimeSpan.FromMinutes(5);
     });
+
+builder.Services
+    .AddHttpClient<OpenAiCompatibleLlmClient>()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+        KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+        EnableMultipleHttp2Connections = true
+    })
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(5));
+
+builder.Services.AddScoped<ILlmClient, MultiProviderLlmClient>();
 
 builder.Services.AddSingleton<ChatGenerationCancellationRegistry>();
 builder.Services.AddScoped<IChatOrchestrator, ChatOrchestrator>();
