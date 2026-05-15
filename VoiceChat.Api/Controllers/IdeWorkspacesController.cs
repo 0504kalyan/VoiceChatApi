@@ -355,6 +355,9 @@ public class IdeWorkspacesController(
 
     private static string BuildAiActionPrompt(IdeAiActionRequest request)
     {
+        var isOllama = request.Model?.Trim().StartsWith("ollama:", StringComparison.OrdinalIgnoreCase) == true;
+        var maxRelatedFiles = isOllama ? 8 : 20;
+        var maxFileContentLength = isOllama ? 4000 : 12000;
         var target = string.IsNullOrWhiteSpace(request.Selection) ? request.Content : request.Selection;
         var builder = new StringBuilder()
             .AppendLine("You are ChatAI inside a Cursor-like IDE. Return practical, concise coding help.")
@@ -373,25 +376,42 @@ public class IdeWorkspacesController(
             .AppendLine($"File: {request.Path ?? "untitled"}")
             .AppendLine($"Language: {request.Language ?? "plaintext"}");
 
+        if (isOllama)
+        {
+            builder
+                .AppendLine("Local Ollama mode: be direct and concise. Use the provided indexed files first and avoid repeating large unchanged code.")
+                .AppendLine("If the request asks to analyze the project, summarize the most important findings and mention which files should be changed before proposing edits.");
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Instruction))
             builder.AppendLine($"User instruction: {request.Instruction}");
 
-        builder
-            .AppendLine()
-            .AppendLine("Code:")
-            .AppendLine("```")
-            .AppendLine(target ?? string.Empty)
-            .AppendLine("```");
+        builder.AppendLine();
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            builder
+                .AppendLine("Active code:")
+                .AppendLine("```")
+                .AppendLine(target)
+                .AppendLine("```");
+        }
+        else
+        {
+            builder.AppendLine("No active file content was selected. Treat this as a workspace-level request and use the related workspace files below.");
+        }
 
         if (request.Files is { Count: > 0 })
         {
             builder.AppendLine().AppendLine("Related workspace files:");
-            foreach (var file in request.Files.Take(20))
+            foreach (var file in request.Files.Take(maxRelatedFiles))
             {
+                var content = file.Content.Length > maxFileContentLength
+                    ? file.Content[..maxFileContentLength]
+                    : file.Content;
                 builder
                     .AppendLine($"File: {file.Path} ({file.Language})")
                     .AppendLine("```")
-                    .AppendLine(file.Content.Length > 12000 ? file.Content[..12000] : file.Content)
+                    .AppendLine(content)
                     .AppendLine("```");
             }
         }

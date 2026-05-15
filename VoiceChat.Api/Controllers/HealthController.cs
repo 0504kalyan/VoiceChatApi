@@ -9,39 +9,54 @@ namespace VoiceChat.Api.Controllers;
 [AllowAnonymous]
 [ApiController]
 [Route("api/[controller]")]
-public class HealthController(IOptions<GeminiOptions> geminiOptions) : ControllerBase
+public class HealthController(
+    IOptions<GeminiOptions> geminiOptions,
+    IOptions<OllamaOptions> ollamaOptions) : ControllerBase
 {
     [HttpGet]
     public IActionResult Get() => Ok(new { status = "ok", time = DateTimeOffset.UtcNow });
 
-    /// <summary>Configured Gemini LLM provider.</summary>
+    /// <summary>Configured Gemini + Ollama defaults.</summary>
     [HttpGet("llm")]
     public IActionResult Llm()
     {
         var opts = geminiOptions.Value;
+        var ollama = ollamaOptions.Value;
         return Ok(new
         {
-            provider = "Gemini",
+            providers = new[] { "Gemini", "Ollama" },
             defaultModel = LlmRuntime.DefaultChatModel(opts),
-            baseUrl = opts.ResolveBaseUri().ToString().TrimEnd('/'),
-            configured = !string.IsNullOrWhiteSpace(opts.ApiKey),
-            models = GetConfiguredModels(opts),
+            gemini = new
+            {
+                baseUrl = opts.ResolveBaseUri().ToString().TrimEnd('/'),
+                configured = !string.IsNullOrWhiteSpace(opts.ApiKey),
+                models = GetConfiguredModels(opts)
+            },
+            ollama = new
+            {
+                baseUrl = (ollama.BaseUrl ?? string.Empty).TrimEnd('/'),
+                defaultModel = $"ollama:{(string.IsNullOrWhiteSpace(ollama.DefaultModel) ? "qwen2.5-coder:14b" : ollama.DefaultModel.Trim())}",
+                models = GetOllamaUiModels(ollama)
+            },
+            models = MergeModelLists(GetConfiguredModels(opts), GetOllamaUiModels(ollama)),
             maxHistoryMessages = Math.Max(4, opts.MaxHistoryMessages),
             hint =
-                "Set Gemini__ApiKey on the API server. GET /api/health/gemini/models lists configured model choices."
+                "Set Gemini__ApiKey for cloud chat, or run Ollama locally and pick ollama:qwen2.5-coder:14b. GET /api/health/gemini/models lists all configured choices."
         });
     }
 
-    /// <summary>Lists Gemini model names configured for the UI dropdown.</summary>
+    /// <summary>Lists Gemini and Ollama model ids for the UI dropdown.</summary>
     [HttpGet("gemini/models")]
     public IActionResult GeminiModels()
     {
         var opts = geminiOptions.Value;
+        var ollama = ollamaOptions.Value;
+        var models = MergeModelLists(GetConfiguredModels(opts), GetOllamaUiModels(ollama));
         return Ok(new
         {
             ok = true,
             defaultModel = LlmRuntime.DefaultChatModel(opts),
-            models = GetConfiguredModels(opts),
+            models,
             maxHistoryMessages = Math.Max(4, opts.MaxHistoryMessages)
         });
     }
@@ -60,5 +75,33 @@ public class HealthController(IOptions<GeminiOptions> geminiOptions) : Controlle
             models.Insert(0, fallback);
 
         return models;
+    }
+
+    private static IReadOnlyList<string> GetOllamaUiModels(OllamaOptions opts)
+    {
+        var names = opts.AvailableModels?
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m.Trim())
+            .ToList() ?? [];
+
+        if (names.Count == 0 && !string.IsNullOrWhiteSpace(opts.DefaultModel))
+            names = [opts.DefaultModel.Trim()];
+
+        return names
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(m => m.StartsWith("ollama:", StringComparison.OrdinalIgnoreCase) ? m : $"ollama:{m}")
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> MergeModelLists(
+        IReadOnlyList<string> gemini,
+        IReadOnlyList<string> ollama)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in gemini)
+            set.Add(m);
+        foreach (var m in ollama)
+            set.Add(m);
+        return set.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToList();
     }
 }

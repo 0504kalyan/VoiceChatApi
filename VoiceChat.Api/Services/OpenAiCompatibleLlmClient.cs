@@ -117,7 +117,7 @@ public sealed class OpenAiCompatibleLlmClient(HttpClient http)
 
     private static Uri NormalizeBaseUrl(string baseUrl)
     {
-        var raw = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.openai.com/v1/" : baseUrl.Trim();
+        var raw = string.IsNullOrWhiteSpace(baseUrl) ? "http://localhost:11434/v1/" : baseUrl.Trim();
         if (!raw.EndsWith('/'))
             raw += "/";
         return new Uri(raw);
@@ -172,6 +172,8 @@ public sealed class OpenAiCompatibleLlmClient(HttpClient http)
         return response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => $"{provider} rejected the API key. Verify the server environment variable.",
+            HttpStatusCode.NotFound when provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase) =>
+                $"Ollama model was not found. Run `ollama list` and select an installed model, or pull it with `ollama pull <model-name>`.",
             HttpStatusCode.TooManyRequests => $"{provider} rate limit or quota was reached. Check billing/credits and try again later.",
             _ => $"{provider} request failed with HTTP {(int)response.StatusCode}: {body}"
         };

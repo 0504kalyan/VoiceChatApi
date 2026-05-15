@@ -8,8 +8,6 @@ namespace VoiceChat.Api.Services;
 public sealed class MultiProviderLlmClient(
     GeminiLlmClient gemini,
     OpenAiCompatibleLlmClient openAiCompatible,
-    IOptions<OpenAIOptions> openAiOptions,
-    IOptions<DeepSeekOptions> deepSeekOptions,
     IOptions<OllamaOptions> ollamaOptions) : ILlmClient
 {
     public IAsyncEnumerable<string> StreamChatAsync(
@@ -56,36 +54,6 @@ public sealed class MultiProviderLlmClient(
                 RequiresApiKey: false);
         }
 
-        if (IsOpenAiModel(model))
-        {
-            var opts = openAiOptions.Value;
-            return new OpenAiCompatibleLlmClient.ProviderConfig(
-                "OpenAI",
-                OpenAIOptions.SectionName,
-                opts.ApiKey,
-                opts.BaseUrl,
-                string.IsNullOrWhiteSpace(model) ? opts.DefaultModel : model,
-                opts.Temperature);
-        }
-
-        if (model.StartsWith("deepseek-", StringComparison.OrdinalIgnoreCase))
-        {
-            var opts = deepSeekOptions.Value;
-            return new OpenAiCompatibleLlmClient.ProviderConfig(
-                "DeepSeek",
-                DeepSeekOptions.SectionName,
-                opts.ApiKey,
-                opts.BaseUrl,
-                string.IsNullOrWhiteSpace(model) ? opts.DefaultModel : model,
-                opts.Temperature);
-        }
-
         return null;
     }
-
-    private static bool IsOpenAiModel(string model) =>
-        model.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase)
-        || model.StartsWith("o1", StringComparison.OrdinalIgnoreCase)
-        || model.StartsWith("o3", StringComparison.OrdinalIgnoreCase)
-        || model.StartsWith("o4", StringComparison.OrdinalIgnoreCase);
 }

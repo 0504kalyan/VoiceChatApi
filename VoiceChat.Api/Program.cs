@@ -40,7 +40,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description =
             "REST API for conversations and messages. Real-time chat uses SignalR at /hubs/chat. " +
-            "LLM replies use Google Gemini via the backend API. See README for Gemini__ApiKey setup."
+            "LLM replies use Google Gemini (default) or local Ollama using model id prefix ollama:<model> (see Ollama section in configuration)."
     });
 });
 
@@ -98,14 +98,6 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services
     .AddOptions<GeminiOptions>()
     .Bind(builder.Configuration.GetSection(GeminiOptions.SectionName));
-
-builder.Services
-    .AddOptions<OpenAIOptions>()
-    .Bind(builder.Configuration.GetSection(OpenAIOptions.SectionName));
-
-builder.Services
-    .AddOptions<DeepSeekOptions>()
-    .Bind(builder.Configuration.GetSection(DeepSeekOptions.SectionName));
 
 builder.Services
     .AddOptions<OllamaOptions>()

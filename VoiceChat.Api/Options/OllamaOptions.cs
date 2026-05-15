@@ -9,16 +9,9 @@ public sealed class OllamaOptions
 
     public string BaseUrl { get; set; } = "http://localhost:11434/v1/";
 
-    public string DefaultModel { get; set; } = "qwen2.5-coder:7b";
+    public string DefaultModel { get; set; } = "qwen2.5-coder:14b";
 
-    public double? Temperature { get; set; } = 0.2;
+    public double? Temperature { get; set; } = 0.7;
 
-    public string[] AvailableModels { get; set; } =
-    [
-        "qwen2.5-coder:7b",
-        "qwen2.5-coder:14b",
-        "deepseek-coder-v2:16b",
-        "codellama:7b",
-        "starcoder2:7b"
-    ];
+    public string[] AvailableModels { get; set; } = ["qwen2.5-coder:14b"];
 }
